@@ -1,0 +1,549 @@
+[
+{
+"name": "UNSPECIFIED",
+"num": 0,
+"line": 15,
+"doc": "Place holder and should never appear in a Workflow execution history",
+"field": null
+},
+{
+"name": "WORKFLOW_EXECUTION_STARTED",
+"num": 1,
+"line": 18,
+"doc": "Workflow execution has been triggered/started It contains Workflow execution inputs, as well as Workflow timeout configurations",
+"field": 6,
+"fline": 1221,
+"mline": 30
+},
+{
+"name": "WORKFLOW_EXECUTION_COMPLETED",
+"num": 2,
+"line": 20,
+"doc": "Workflow execution has successfully completed and contains Workflow execution results",
+"field": 7,
+"fline": 1222,
+"mline": 230
+},
+{
+"name": "WORKFLOW_EXECUTION_FAILED",
+"num": 3,
+"line": 22,
+"doc": "Workflow execution has unsuccessfully completed and contains the Workflow execution error",
+"field": 8,
+"fline": 1223,
+"mline": 239
+},
+{
+"name": "WORKFLOW_EXECUTION_TIMED_OUT",
+"num": 4,
+"line": 25,
+"doc": "Workflow execution has timed out by the Temporal Server Usually due to the Workflow having not been completed within timeout settings",
+"field": 9,
+"fline": 1224,
+"mline": 249
+},
+{
+"name": "WORKFLOW_TASK_SCHEDULED",
+"num": 5,
+"line": 27,
+"doc": "Workflow Task has been scheduled and the SDK client should now be able to process any new history events",
+"field": 10,
+"fline": 1225,
+"mline": 295
+},
+{
+"name": "WORKFLOW_TASK_STARTED",
+"num": 6,
+"line": 29,
+"doc": "Workflow Task has started and the SDK client has picked up the Workflow Task and is processing new history events",
+"field": 11,
+"fline": 1226,
+"mline": 307
+},
+{
+"name": "WORKFLOW_TASK_COMPLETED",
+"num": 7,
+"line": 44,
+"doc": "Workflow Task has completed The SDK client picked up the Workflow Task and processed new history events SDK client may or may not ask the Temporal Server to do additional work, such as: EVENT_TYPE_ACTIVITY_TASK_SCHEDULED EVENT_TYPE_TIMER_STARTED EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES EVENT_TYPE_MARKER_RECORDED EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED EVENT_TYPE_WORKFLOW_EXECUTION_FAILED EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW",
+"field": 12,
+"fline": 1227,
+"mline": 341
+},
+{
+"name": "WORKFLOW_TASK_TIMED_OUT",
+"num": 8,
+"line": 47,
+"doc": "Workflow Task encountered a timeout Either an SDK client with a local cache was not available at the time, or it took too long for the SDK client to process the task",
+"field": 13,
+"fline": 1228,
+"mline": 384
+},
+{
+"name": "WORKFLOW_TASK_FAILED",
+"num": 9,
+"line": 51,
+"doc": "Workflow Task encountered a failure Usually this means that the Workflow was non-deterministic However, the Workflow reset functionality also uses this event",
+"field": 14,
+"fline": 1229,
+"mline": 392
+},
+{
+"name": "ACTIVITY_TASK_SCHEDULED",
+"num": 10,
+"line": 55,
+"doc": "Activity Task was scheduled The SDK client should pick up this activity task and execute This event type contains activity inputs, as well as activity timeout configurations",
+"field": 15,
+"fline": 1230,
+"mline": 420
+},
+{
+"name": "ACTIVITY_TASK_STARTED",
+"num": 11,
+"line": 58,
+"doc": "Activity Task has started executing The SDK client has picked up the Activity Task and is processing the Activity invocation",
+"field": 16,
+"fline": 1231,
+"mline": 467
+},
+{
+"name": "ACTIVITY_TASK_COMPLETED",
+"num": 12,
+"line": 62,
+"doc": "Activity Task has finished successfully The SDK client has picked up and successfully completed the Activity Task This event type contains Activity execution results",
+"field": 17,
+"fline": 1232,
+"mline": 493
+},
+{
+"name": "ACTIVITY_TASK_FAILED",
+"num": 13,
+"line": 66,
+"doc": "Activity Task has finished unsuccessfully The SDK picked up the Activity Task but unsuccessfully completed it This event type contains Activity execution errors",
+"field": 18,
+"fline": 1233,
+"mline": 507
+},
+{
+"name": "ACTIVITY_TASK_TIMED_OUT",
+"num": 14,
+"line": 69,
+"doc": "Activity has timed out according to the Temporal Server Activity did not complete within the timeout settings",
+"field": 19,
+"fline": 1234,
+"mline": 524
+},
+{
+"name": "ACTIVITY_TASK_CANCEL_REQUESTED",
+"num": 15,
+"line": 72,
+"doc": "A request to cancel the Activity has occurred The SDK client will be able to confirm cancellation of an Activity during an Activity heartbeat",
+"field": 22,
+"fline": 1237,
+"mline": 535
+},
+{
+"name": "ACTIVITY_TASK_CANCELED",
+"num": 16,
+"line": 74,
+"doc": "Activity has been cancelled",
+"field": 23,
+"fline": 1238,
+"mline": 542
+},
+{
+"name": "TIMER_STARTED",
+"num": 17,
+"line": 76,
+"doc": "A timer has started",
+"field": 20,
+"fline": 1235,
+"mline": 559
+},
+{
+"name": "TIMER_FIRED",
+"num": 18,
+"line": 78,
+"doc": "A timer has fired",
+"field": 21,
+"fline": 1236,
+"mline": 571
+},
+{
+"name": "TIMER_CANCELED",
+"num": 19,
+"line": 80,
+"doc": "A time has been cancelled",
+"field": 24,
+"fline": 1239,
+"mline": 578
+},
+{
+"name": "WORKFLOW_EXECUTION_CANCEL_REQUESTED",
+"num": 20,
+"line": 82,
+"doc": "A request has been made to cancel the Workflow execution",
+"field": 28,
+"fline": 1243,
+"mline": 589
+},
+{
+"name": "WORKFLOW_EXECUTION_CANCELED",
+"num": 21,
+"line": 84,
+"doc": "SDK client has confirmed the cancellation request and the Workflow execution has been cancelled",
+"field": 29,
+"fline": 1244,
+"mline": 600
+},
+{
+"name": "REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED",
+"num": 22,
+"line": 86,
+"doc": "Workflow has requested that the Temporal Server try to cancel another Workflow",
+"field": 30,
+"fline": 1245,
+"mline": 645
+},
+{
+"name": "REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED",
+"num": 23,
+"line": 89,
+"doc": "Temporal Server could not cancel the targeted Workflow This is usually because the target Workflow could not be found",
+"field": 31,
+"fline": 1246,
+"mline": 662
+},
+{
+"name": "EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED",
+"num": 24,
+"line": 91,
+"doc": "Temporal Server has successfully requested the cancellation of the target Workflow",
+"field": 32,
+"fline": 1247,
+"mline": 678
+},
+{
+"name": "MARKER_RECORDED",
+"num": 25,
+"line": 95,
+"doc": "A marker has been recorded. This event type is transparent to the Temporal Server The Server will only store it and will not try to understand it.",
+"field": 25,
+"fline": 1240,
+"mline": 606
+},
+{
+"name": "WORKFLOW_EXECUTION_SIGNALED",
+"num": 26,
+"line": 98,
+"doc": "Workflow has received a Signal event The event type contains the Signal name, as well as a Signal payload",
+"field": 26,
+"fline": 1241,
+"mline": 618
+},
+{
+"name": "WORKFLOW_EXECUTION_TERMINATED",
+"num": 27,
+"line": 101,
+"doc": "Workflow execution has been forcefully terminated This is usually because the terminate Workflow API was called",
+"field": 27,
+"fline": 1242,
+"mline": 637
+},
+{
+"name": "WORKFLOW_EXECUTION_CONTINUED_AS_NEW",
+"num": 28,
+"line": 104,
+"doc": "Workflow has successfully completed and a new Workflow has been started within the same transaction Contains last Workflow execution results as well as new Workflow execution inputs",
+"field": 33,
+"fline": 1248,
+"mline": 255
+},
+{
+"name": "START_CHILD_WORKFLOW_EXECUTION_INITIATED",
+"num": 29,
+"line": 106,
+"doc": "Temporal Server will try to start a child Workflow",
+"field": 34,
+"fline": 1249,
+"mline": 750
+},
+{
+"name": "START_CHILD_WORKFLOW_EXECUTION_FAILED",
+"num": 30,
+"line": 109,
+"doc": "Child Workflow execution cannot be started/triggered Usually due to a child Workflow ID collision",
+"field": 35,
+"fline": 1250,
+"mline": 801
+},
+{
+"name": "CHILD_WORKFLOW_EXECUTION_STARTED",
+"num": 31,
+"line": 111,
+"doc": "Child Workflow execution has successfully started/triggered",
+"field": 36,
+"fline": 1251,
+"mline": 817
+},
+{
+"name": "CHILD_WORKFLOW_EXECUTION_COMPLETED",
+"num": 32,
+"line": 113,
+"doc": "Child Workflow execution has successfully completed",
+"field": 37,
+"fline": 1252,
+"mline": 829
+},
+{
+"name": "CHILD_WORKFLOW_EXECUTION_FAILED",
+"num": 33,
+"line": 115,
+"doc": "Child Workflow execution has unsuccessfully completed",
+"field": 38,
+"fline": 1253,
+"mline": 843
+},
+{
+"name": "CHILD_WORKFLOW_EXECUTION_CANCELED",
+"num": 34,
+"line": 117,
+"doc": "Child Workflow execution has been cancelled",
+"field": 39,
+"fline": 1254,
+"mline": 858
+},
+{
+"name": "CHILD_WORKFLOW_EXECUTION_TIMED_OUT",
+"num": 35,
+"line": 119,
+"doc": "Child Workflow execution has timed out by the Temporal Server",
+"field": 40,
+"fline": 1255,
+"mline": 872
+},
+{
+"name": "CHILD_WORKFLOW_EXECUTION_TERMINATED",
+"num": 36,
+"line": 121,
+"doc": "Child Workflow execution has been terminated",
+"field": 41,
+"fline": 1256,
+"mline": 886
+},
+{
+"name": "SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED",
+"num": 37,
+"line": 124,
+"doc": "Temporal Server will try to Signal the targeted Workflow Contains the Signal name, as well as a Signal payload",
+"field": 42,
+"fline": 1257,
+"mline": 689
+},
+{
+"name": "SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED",
+"num": 38,
+"line": 127,
+"doc": "Temporal Server cannot Signal the targeted Workflow Usually because the Workflow could not be found",
+"field": 43,
+"fline": 1258,
+"mline": 709
+},
+{
+"name": "EXTERNAL_WORKFLOW_EXECUTION_SIGNALED",
+"num": 39,
+"line": 129,
+"doc": "Temporal Server has successfully Signaled the targeted Workflow",
+"field": 44,
+"fline": 1259,
+"mline": 723
+},
+{
+"name": "UPSERT_WORKFLOW_SEARCH_ATTRIBUTES",
+"num": 40,
+"line": 131,
+"doc": "Workflow search attributes should be updated and synchronized with the visibility store",
+"field": 45,
+"fline": 1260,
+"mline": 735
+},
+{
+"name": "WORKFLOW_EXECUTION_UPDATE_ADMITTED",
+"num": 47,
+"line": 135,
+"doc": "An update was admitted. Note that not all admitted updates result in this event. See UpdateAdmittedEventOrigin for situations in which this event is created.",
+"field": 52,
+"fline": 1267,
+"mline": 999
+},
+{
+"name": "WORKFLOW_EXECUTION_UPDATE_ACCEPTED",
+"num": 41,
+"line": 137,
+"doc": "An update was accepted (i.e. passed validation, perhaps because no validator was defined)",
+"field": 46,
+"fline": 1261,
+"mline": 958
+},
+{
+"name": "WORKFLOW_EXECUTION_UPDATE_REJECTED",
+"num": 42,
+"line": 139,
+"doc": "This event is never written to history.",
+"field": 47,
+"fline": 1262,
+"mline": 983
+},
+{
+"name": "WORKFLOW_EXECUTION_UPDATE_COMPLETED",
+"num": 43,
+"line": 141,
+"doc": "An update completed",
+"field": 48,
+"fline": 1263,
+"mline": 972
+},
+{
+"name": "WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY",
+"num": 44,
+"line": 145,
+"doc": "Some property or properties of the workflow as a whole have changed by non-workflow code. The distinction of external vs. command-based modification is important so the SDK can maintain determinism when using the command-based approach.",
+"field": 49,
+"fline": 1264,
+"mline": 937
+},
+{
+"name": "ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY",
+"num": 45,
+"line": 149,
+"doc": "Some property or properties of an already-scheduled activity have changed by non-workflow code. The distinction of external vs. command-based modification is important so the SDK can maintain determinism when using the command-based approach.",
+"field": 50,
+"fline": 1265,
+"mline": 950
+},
+{
+"name": "WORKFLOW_PROPERTIES_MODIFIED",
+"num": 46,
+"line": 151,
+"doc": "Workflow properties modified by user workflow code",
+"field": 51,
+"fline": 1266,
+"mline": 741
+},
+{
+"name": "NEXUS_OPERATION_SCHEDULED",
+"num": 48,
+"line": 153,
+"doc": "A Nexus operation was scheduled using a ScheduleNexusOperation command.",
+"field": 53,
+"fline": 1268,
+"mline": 1043
+},
+{
+"name": "NEXUS_OPERATION_STARTED",
+"num": 49,
+"line": 155,
+"doc": "An asynchronous Nexus operation was started by a Nexus handler.",
+"field": 54,
+"fline": 1269,
+"mline": 1094
+},
+{
+"name": "NEXUS_OPERATION_COMPLETED",
+"num": 50,
+"line": 157,
+"doc": "A Nexus operation completed successfully.",
+"field": 55,
+"fline": 1270,
+"mline": 1112
+},
+{
+"name": "NEXUS_OPERATION_FAILED",
+"num": 51,
+"line": 159,
+"doc": "A Nexus operation failed.",
+"field": 56,
+"fline": 1271,
+"mline": 1124
+},
+{
+"name": "NEXUS_OPERATION_CANCELED",
+"num": 52,
+"line": 161,
+"doc": "A Nexus operation completed as canceled.",
+"field": 57,
+"fline": 1272,
+"mline": 1146
+},
+{
+"name": "NEXUS_OPERATION_TIMED_OUT",
+"num": 53,
+"line": 163,
+"doc": "A Nexus operation timed out.",
+"field": 58,
+"fline": 1273,
+"mline": 1135
+},
+{
+"name": "NEXUS_OPERATION_CANCEL_REQUESTED",
+"num": 54,
+"line": 165,
+"doc": "A Nexus operation was requested to be canceled using a RequestCancelNexusOperation command.",
+"field": 59,
+"fline": 1274,
+"mline": 1156
+},
+{
+"name": "WORKFLOW_EXECUTION_OPTIONS_UPDATED",
+"num": 55,
+"line": 167,
+"doc": "Workflow execution options updated by user.",
+"field": 60,
+"fline": 1275,
+"mline": 899
+},
+{
+"name": "NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED",
+"num": 56,
+"line": 169,
+"doc": "A cancellation request for a Nexus operation was successfully delivered to the Nexus handler.",
+"field": 61,
+"fline": 1276,
+"mline": 1164
+},
+{
+"name": "NEXUS_OPERATION_CANCEL_REQUEST_FAILED",
+"num": 57,
+"line": 171,
+"doc": "A cancellation request for a Nexus operation resulted in an error.",
+"field": 62,
+"fline": 1277,
+"mline": 1174
+},
+{
+"name": "WORKFLOW_EXECUTION_PAUSED",
+"num": 58,
+"line": 173,
+"doc": "An event that indicates that the workflow execution has been paused.",
+"field": 63,
+"fline": 1278,
+"mline": 1007
+},
+{
+"name": "WORKFLOW_EXECUTION_UNPAUSED",
+"num": 59,
+"line": 175,
+"doc": "An event that indicates that the previously paused workflow execution has been unpaused.",
+"field": 64,
+"fline": 1279,
+"mline": 1017
+},
+{
+"name": "WORKFLOW_EXECUTION_TIME_SKIPPING_TRANSITIONED",
+"num": 60,
+"line": 177,
+"doc": "An event that indicates time skipping advanced time or was disabled automatically after a bound was reached.",
+"field": 65,
+"fline": 1280,
+"mline": 1029
+}
+]

@@ -1,0 +1,119 @@
+
+<section class="chapter" data-sheet="APPX A" id="appA">
+<div class="chap-no">Appendix A</div>
+<h2 id="sA">A Struct reference</h2>
+<p class="lede">These field tables are generated from the <i>compiled</i> descriptors linked into the server binary by <code>tools/desc</code>, not from reading the <code>.proto</code> text. <b>tag</b> is the exact byte sequence that introduces the field on the wire. Repeated scalars are packed (LEN). <code>srv.</code> = <code>temporal.server.api.</code></p>
+<h3 id="sA-1">A.1 Common, history and command messages</h3>
+<!--STRUCTS-->
+<div class="src"><h4>Sources</h4><ul>
+<li>{{API:temporal/api/common/v1/message.proto}}</li>
+<li>{{API:temporal/api/history/v1/message.proto}}</li>
+<li>{{API:temporal/api/command/v1/message.proto}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/executions.proto}}</li>
+<li>{{T:proto/internal/temporal/server/api/history/v1/message.proto#L19-L40}}</li>
+<li>{{T:proto/internal/temporal/server/api/token/v1/message.proto}}</li>
+<li>{{T:proto/internal/temporal/server/api/clock/v1/message.proto#L7}}</li>
+<li>This repo: <span class="mono">tools/desc/main.go</span> → <span class="mono">data/structs.json</span></li>
+</ul></div>
+</section>
+
+<section class="chapter" data-sheet="APPX B" id="appB">
+<div class="chap-no">Appendix B</div>
+<h2 id="sB">B Enum reference</h2>
+<h3 id="sB-1">B.1 EventType ↔ HistoryEvent.attributes</h3>
+<p>All 60 event types with their oneof arm and the exact tag bytes of that arm (LEN wire type). Orange arm numbers break the <code>type + 5</code> rule. Each link goes to the attributes message definition.</p>
+<!--EVTTABLE-->
+<h3 id="sB-2">B.2 Other enums (descriptor-generated)</h3>
+<!--ENUMS-->
+<div class="src"><h4>Sources</h4><ul>
+<li>{{API:temporal/api/enums/v1/event_type.proto}}</li>
+<li>{{API:temporal/api/enums/v1/command_type.proto}}</li>
+<li>{{API:temporal/api/enums/v1/workflow.proto}}</li>
+<li>{{API:temporal/api/enums/v1/task_queue.proto}}</li>
+<li>{{API:temporal/api/enums/v1/common.proto}}</li>
+<li>{{API:temporal/api/enums/v1/failed_cause.proto}}</li>
+<li>{{T:proto/internal/temporal/server/api/enums/v1/task.proto}}</li>
+<li>{{T:proto/internal/temporal/server/api/enums/v1/workflow.proto}}</li>
+</ul></div>
+</section>
+
+<section class="chapter" data-sheet="APPX C" id="appC">
+<div class="chap-no">Appendix C</div>
+<h2 id="sC">C Encodings matrix</h2>
+<p class="lede">Every encoding layer a Temporal byte can pass through, from user value to disk.</p>
+<table class="ref">
+<thead><tr><th>layer</th><th>format</th><th>discriminator</th><th>values seen</th><th>producer / consumer</th><th>ref</th></tr></thead>
+<tbody>
+<tr><td>user value → Payload.data</td><td>JSON, raw bytes, protojson, proto binary</td><td><code>metadata["encoding"]</code></td><td class="mono">json/plain, binary/plain, binary/null, json/protobuf, binary/protobuf</td><td>SDK DataConverter</td><td>§4.4</td></tr>
+<tr><td>Payload → Payload (codec)</td><td>zlib, encryption, …</td><td><code>metadata["encoding"]</code> (+ codec keys)</td><td class="mono">binary/zlib</td><td>SDK PayloadCodec; codec server <code>/encode</code>/<code>/decode</code></td><td>§4.5</td></tr>
+<tr><td>message → wire</td><td>protobuf 3 binary</td><td>gRPC <code>content-type: application/grpc</code></td><td>5-byte Length-Prefixed-Message</td><td>SDK ↔ frontend ↔ services</td><td>§7.2</td></tr>
+<tr><td>message → wire (HTTP)</td><td>protojson</td><td><code>/api/v1/…</code> routes</td><td>100 of 123 RPCs</td><td>frontend HTTP gateway</td><td>§7.1</td></tr>
+<tr><td>state → DB blob</td><td>protobuf 3 binary (JSON test-only)</td><td><code>*_encoding</code> column = <code>EncodingType.String()</code></td><td class="mono">Proto3 (Json)</td><td>serialization.Encode / Decode</td><td>§2.5</td></tr>
+<tr><td>events → DB blob</td><td><code>History{events}</code> per batch</td><td><code>history_node.data_encoding</code></td><td class="mono">Proto3</td><td>history service</td><td>§4.2</td></tr>
+<tr><td>UUIDs</td><td>16 raw bytes (SQL keys) vs 36-char text (inside protos, visibility)</td><td>column type</td><td class="mono">BINARY(16) / CHAR(64) / string</td><td>SQL plugins</td><td>§2.4, §5.5</td></tr>
+<tr><td>task_queue_id</td><td>ns UUID ‖ name ‖ type byte [‖ uvarint subqueue]</td><td>type byte bit 0x80</td><td class="mono">…"orders" 01</td><td>SQL matching store</td><td>§5.4</td></tr>
+<tr><td>txn_id (SQL)</td><td>negated int64</td><td>—</td><td class="mono">−1048617</td><td>SQL history store</td><td>§4.2</td></tr>
+<tr><td>search attributes (SQLite)</td><td>JSON text + generated columns</td><td>SA <code>type</code> metadata</td><td>KeywordList joined by "♡"</td><td>SQLite visibility</td><td>§5.5</td></tr>
+<tr><td>task token</td><td>protobuf <code>token.v1.Task</code>, unencrypted</td><td>—</td><td>118 B</td><td>history → worker → frontend</td><td>§7.4</td></tr>
+<tr><td>branch token</td><td>protobuf <code>HistoryBranch</code></td><td>—</td><td>78 B</td><td>history</td><td>§4.1</td></tr>
+</tbody></table>
+</section>
+
+<section class="chapter" data-sheet="APPX D" id="appD">
+<div class="chap-no">Appendix D</div>
+<h2 id="sD">D Glossary</h2>
+<dl class="kv">
+<dt>Activity</dt><dd>Non-deterministic unit of work executed by a worker. Scheduled by command, retried by server policy.</dd>
+<dt>Branch / tree</dt><dd>History storage topology: a tree per first run, branches per reset or conflict fork (§4.1).</dd>
+<dt>Buffered event</dt><dd>External event held while a WFT is in flight, then flushed after completion (§4.3).</dd>
+<dt>CHASM</dt><dd>The server's component-tree state framework. Archetype IDs are farm fingerprints of component names (§8.4).</dd>
+<dt>Command</dt><dd>Worker → server instruction in a WFT completion (§1.3).</dd>
+<dt>Current execution</dt><dd>The single open (or most recent) run for a workflow ID. Row in <code>current_executions</code>.</dd>
+<dt>DataBlob</dt><dd><code>{encoding_type, data}</code> wrapper for every persisted proto (§2.5).</dd>
+<dt>Eager execution</dt><dd>Activity task (or first WFT) returned inline in an RPC response instead of via matching (§7.5).</dd>
+<dt>Failover version</dt><dd>Per-event int64 encoding which cluster wrote it (§6.4).</dd>
+<dt>Marker</dt><dd><code>MARKER_RECORDED</code> event storing SDK-level non-determinism (version, side effects, local activities).</dd>
+<dt>Mutable state</dt><dd>Materialized projection of history used for decisions (§5.1).</dd>
+<dt>Namespace</dt><dd>Isolation and configuration unit. Name for clients, UUID internally.</dd>
+<dt>Partition</dt><dd>Sub-queue of a task queue owned by one matching host. Default 4 (§5.4).</dd>
+<dt>Payload</dt><dd><code>{metadata, data}</code> carrier of every user value (§3.3).</dd>
+<dt>Range ID</dt><dd>Shard or partition ownership epoch, used for fencing and task-ID ranges (§2.3).</dd>
+<dt>Shard</dt><dd>Unit of history ownership and transactionality. <code>fp32(nsID_wfID) mod N + 1</code>.</dd>
+<dt>Speculative WFT</dt><dd>WFT for an update, not persisted unless it produces events (§8.3).</dd>
+<dt>Sticky queue</dt><dd>Worker-private queue <code>host:uuid</code> used while its cache holds the workflow (§7.5).</dd>
+<dt>Task (history)</dt><dd>Outbox record in a shard queue category (§5.6).</dd>
+<dt>Task token</dt><dd>Serialized <code>token.v1.Task</code> the worker echoes back on respond (§7.4).</dd>
+<dt>Transient</dt><dd>Events not yet persisted: activity started (−124) or retried WFT events.</dd>
+<dt>WFT</dt><dd>Workflow task: one round of "give the worker new history, get commands back".</dd>
+</dl>
+</section>
+
+<section class="chapter" data-sheet="APPX E" id="appE">
+<div class="chap-no">Appendix E</div>
+<h2 id="sE">E Figure index</h2>
+<!--FIGINDEX-->
+</section>
+
+<section class="chapter" data-sheet="APPX F" id="appF">
+<div class="chap-no">Appendix F</div>
+<h2 id="sF">F Reproducing the specimen</h2>
+<pre><code># 1. server @ d8f9c6d8 (1.33.0)
+git clone https://github.com/temporalio/temporal &amp;&amp; cd temporal
+go build -o temporal-server ./cmd/server
+sed -e 's/numHistoryShards: 1/numHistoryShards: 4/' \
+    -e 's#databaseName: "default"#databaseName: "/abs/path/temporal.db"#' \
+    config/development-sqlite-file.yaml &gt; run/config/development.yaml
+cp -r config/dynamicconfig run/config/
+./temporal-server --config-file run/config/development.yaml --allow-no-auth start
+
+# 2. worker + capture (this repo: tools/probe/main.go, built inside sdk-go @ 626130f1)
+go run ./cmd/probe          # registers "default", runs OrderWorkflow, dumps RPC bodies
+
+# 3. annotate (this repo: tools/annot/main.go, built inside the server module)
+./annot temporal.api.history.v1.History hnode_01.bin     # → JSON spans
+
+# 4. descriptors and the manual
+./desc temporal.api.common.v1.Payload … &gt; data/structs.json
+python3 tools/build.py      # → temporal-technical-manual.html</code></pre>
+<p>Timestamps, UUIDs, build IDs and the pid in <code>identity</code> will differ between runs. Byte <i>layouts</i>, field numbers, sizes of fixed-width parts and derivation rules will not, as long as the pins match.</p>
+</section>

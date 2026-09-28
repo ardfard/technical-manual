@@ -1,0 +1,147 @@
+
+<section class="chapter" data-sheet="SHEET 02" id="ch2">
+<div class="chap-no">Chapter 2</div>
+<h2 id="s2">2 Physical layout</h2>
+<p class="lede">Where bytes live: four server roles, a fixed number of history shards, and a relational or wide-column store in which every stateful value is an opaque protobuf blob tagged with its encoding.</p>
+
+<h3 id="s2-1">2.1 Roles, ports and membership</h3>
+<table class="ref">
+<thead><tr><th>Service</th><th>gRPC</th><th>Membership (ringpop)</th><th>HTTP</th><th>Owns</th></tr></thead>
+<tbody>
+<tr><td><b>frontend</b></td><td class="num">7233</td><td class="num">6933</td><td class="num">7243</td><td>Public <code>WorkflowService</code> and <code>OperatorService</code>. Stateless. Routes to history by shard and to matching by task-queue partition.</td></tr>
+<tr><td><b>history</b></td><td class="num">7234</td><td class="num">6934</td><td>—</td><td>Shards: mutable state, event log, per-shard task queues (transfer, timer, visibility, replication, archival, outbound).</td></tr>
+<tr><td><b>matching</b></td><td class="num">7235</td><td class="num">6935</td><td>—</td><td>Task-queue partitions: sync-match of polls to tasks, and the backlog in <code>tasks_v2</code>.</td></tr>
+<tr><td><b>worker</b></td><td class="num">7239</td><td class="num">6939</td><td>—</td><td>Internal system workflows such as scanners, batch operations, schedules and namespace deletion.</td></tr>
+</tbody></table>
+<p>Ports are the <code>services.*.rpc</code> block of the development config ({{T:config/development-sqlite-file.yaml#L71-L96}}). Production values are deployment-specific. The config also sets <code>clusterMetadata.failoverVersionIncrement: 10</code>, which Chapter 6 uses.</p>
+
+<h3 id="s2-2">2.2 History shards: the routing function</h3>
+<p>Every workflow execution belongs to exactly one history shard for its whole life. The mapping is a pure function of namespace ID and workflow ID. Run ID is not part of it, so all runs of a workflow ID share a shard, which is what makes <code>current_executions</code> a single-shard lookup.</p>
+<pre><code>// {{T:common/util.go#L418-L426}}
+func WorkflowIDToHistoryShard(namespaceID string, workflowID string, numberOfShards int32) int32 {
+	idBytes := []byte(namespaceID + "_" + workflowID)
+	hash := farm.Fingerprint32(idBytes)
+	return int32(hash%uint32(numberOfShards)) + 1 // ShardID starts with 1
+}</code></pre>
+<!--DUMP shard_key|Exact bytes hashed for the specimen: the 36-char textual namespace UUID, an underscore, and the workflow ID (47 B).-->
+<figure class="fig" data-cap="Shard routing for the specimen, verified against the stored row (executions.shard_id = 2)." id="fig-shard">
+<svg viewBox="0 0 960 190" role="img" aria-label="Shard routing computation">
+  <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g style="color:var(--ink)">
+  <rect class="box3" x="10" y="30" width="250" height="60"/><text x="22" y="52" font-size="11">"73ab11db-…-b43fedd412e7</text><text x="22" y="70" font-size="11">_order-1001"  (47 B)</text>
+  <path class="ln" d="M260,60 H320" marker-end="url(#ar3)"/>
+  <rect class="box2" x="320" y="30" width="190" height="60"/><text x="332" y="52" font-size="11">farm.Fingerprint32</text><text x="332" y="72" font-size="13" font-weight="600">0xeda567a9</text>
+  <path class="ln" d="M510,60 H560" marker-end="url(#ar3)"/>
+  <rect class="box" x="560" y="10" width="180" height="40"/><text x="572" y="34" font-size="11">% 4 = 1  → +1 → <tspan class="acc" font-weight="700">shard 2</tspan></text>
+  <rect class="box" x="560" y="60" width="180" height="40"/><text x="572" y="84" font-size="11">% 512 = 425 → shard 426</text>
+  <rect class="box" x="560" y="110" width="180" height="40"/><text x="572" y="134" font-size="11">% 16384 → another shard</text>
+  <path class="ln2" d="M510,60 L560,30"/><path class="ln2" d="M510,60 L560,130"/>
+  <text x="760" y="34" font-size="10.5" class="muted">numHistoryShards = 4</text>
+  <text x="760" y="50" font-size="10.5" class="muted">(specimen config)</text>
+  <text x="760" y="84" font-size="10.5" class="muted">typical production</text>
+  <text x="760" y="134" font-size="10.5" class="muted">large clusters</text>
+  <text x="10" y="178" font-size="10.5" class="muted">decimal 3987040169 · shard count is immutable after cluster creation: changing it remaps every workflow</text>
+  </g>
+</svg>
+<figcaption>Shard routing for the specimen. The result was recomputed with <code>github.com/dgryski/go-farm</code> and matches the stored row <code>executions.shard_id = 2</code>.</figcaption>
+</figure>
+<div class="warn"><b>Consequence</b> <code>numHistoryShards</code> is an input to the hash. Changing it on a live cluster sends lookups for existing workflows to shards that do not hold them. Size it once. Cross-cluster replication between clusters with different shard counts goes through <code>MapShardID</code> ({{T:common/util.go#L428-L430}}), which panics unless one count is a multiple of the other ({{T:common/util.go#L433-L436}}).</div>
+
+<h3 id="s2-3">2.3 Shard ownership, range IDs and task IDs</h3>
+<p>A shard is owned by one history host at a time. Ownership is represented by <code>shards.range_id</code>. Each acquisition increments it with a conditional write, and every later write to the shard's executions is conditioned on it. The range ID also partitions the 64-bit task-ID space:</p>
+<pre><code>// {{T:service/history/shard/task_key_generator.go#L152-L153}}
+a.nextTaskID         = rangeID &lt;&lt; a.rangeSizeBits
+a.exclusiveMaxTaskID = (rangeID + 1) &lt;&lt; a.rangeSizeBits
+// RangeSizeBits: 20, // 20 bits for sequencer   ({{T:service/history/configs/config.go#L562}})</code></pre>
+<figure class="fig" data-cap="Task-ID bit layout. A shard that exhausts 2^20 IDs renews its range (range_id+1) before allocating more." id="fig-taskid">
+<div class="bits">
+  <div style="flex:1;background:var(--r-int-bg)">bit 63 … 20 : <b>range_id</b> (44 bits)</div>
+  <div style="flex:.55;background:var(--r-enum-bg)">bit 19 … 0 : <b>sequence</b> (20 bits, 1 048 576 IDs)</div>
+</div>
+<table class="ref compact"><thead><tr><th>specimen value</th><th>hex</th><th>range_id</th><th>seq</th><th>used by</th></tr></thead><tbody>
+<tr><td class="num">1048576</td><td class="mono">0x0000000000100000</td><td class="num">1</td><td class="num">0</td><td>event 1 <code>task_id</code>; WorkflowExecutionInfo.task_generation_shard_clock_timestamp</td></tr>
+<tr><td class="num">1048585</td><td class="mono">0x0000000000100009</td><td class="num">1</td><td class="num">9</td><td>task token <code>clock.clock</code> (vector clock of WFT dispatch)</td></tr>
+<tr><td class="num">1048616</td><td class="mono">0x0000000000100028</td><td class="num">1</td><td class="num">40</td><td>event 16; <code>last_running_clock</code></td></tr>
+<tr><td class="num">1048618</td><td class="mono">0x000000000010002a</td><td class="num">1</td><td class="num">42</td><td>timer task DELETE_HISTORY_EVENT (retention)</td></tr>
+</tbody></table>
+<figcaption>Task-ID bit layout (a <code>&lt;&lt; 20</code> split). A shard that exhausts its 2<sup>20</sup> IDs renews its range (<code>range_id+1</code>) with a conditional write before it allocates more. In SQL the history-node <code>txn_id</code> column stores the <b>negated</b> task ID (§4.2).</figcaption>
+</figure>
+<!--DUMP shard_2|shards.data for shard 2 (ShardInfo, 95 B). owner = "&lt;host:port&gt;-&lt;shardID&gt;-&lt;uuid&gt;"; queue_states is keyed by task category ID (2 = timer).-->
+
+<h3 id="s2-4">2.4 Table catalog (SQL schema, SQLite v3 / version 0.11)</h3>
+<p>The SQL schemas for MySQL 8, PostgreSQL 12 and SQLite share one logical layout. Every stateful column is a <code>MEDIUMBLOB</code> or <code>BYTEA</code> paired with a <code>VARCHAR(16)</code> encoding column. The last column shows the row counts in the specimen after one workflow, including the two system workflows the server starts itself.</p>
+<table class="ref compact">
+<thead><tr><th>table</th><th>primary key</th><th>blob → proto</th><th class="num">rows</th></tr></thead>
+<tbody>
+<tr><td class="mono">namespaces</td><td class="mono">(partition_id=54321, id BINARY16)</td><td>data → <code>persistence.v1.NamespaceDetail</code></td><td class="num">2</td></tr>
+<tr><td class="mono">shards</td><td class="mono">(shard_id)</td><td>data → <code>ShardInfo</code>; range_id column duplicated for CAS</td><td class="num">4</td></tr>
+<tr><td class="mono">executions</td><td class="mono">(shard_id, namespace_id, workflow_id, run_id)</td><td>data → <code>WorkflowExecutionInfo</code>; state → <code>WorkflowExecutionState</code>; next_event_id, last_write_version, db_record_version as columns</td><td class="num">3</td></tr>
+<tr><td class="mono">current_executions</td><td class="mono">(shard_id, namespace_id, workflow_id)</td><td>run_id pointer + state/status ints; data → <code>WorkflowExecutionState</code></td><td class="num">3</td></tr>
+<tr><td class="mono">current_chasm_executions</td><td class="mono">(shard_id, ns, business_id, archetype_id)</td><td>same shape, for CHASM archetypes (standalone activities, schedulers…)</td><td class="num">0</td></tr>
+<tr><td class="mono">history_node</td><td class="mono">(shard_id, tree_id, branch_id, node_id, txn_id)</td><td>data → <code>api.history.v1.History</code> (one batch); prev_txn_id chains</td><td class="num">11</td></tr>
+<tr><td class="mono">history_tree</td><td class="mono">(shard_id, tree_id, branch_id)</td><td>data → <code>HistoryTreeInfo</code></td><td class="num">3</td></tr>
+<tr><td class="mono">buffered_events</td><td class="mono">(shard_id, ns, wf, run, id AUTO)</td><td>events that arrived during an in-flight WFT</td><td class="num">0</td></tr>
+<tr><td class="mono">activity_info_maps · timer_info_maps · child_execution_info_maps · request_cancel_info_maps · signal_info_maps · signals_requested_sets · chasm_node_maps</td><td class="mono">(shard, ns, wf, run, key)</td><td>per-entity mutable state: <code>ActivityInfo</code>, <code>TimerInfo</code>, … (rows deleted on close)</td><td class="num">0</td></tr>
+<tr><td class="mono">transfer_tasks · visibility_tasks · replication_tasks · history_immediate_tasks</td><td class="mono">(shard_id, task_id)</td><td><code>TransferTaskInfo</code>, <code>VisibilityTaskInfo</code>, …</td><td class="num">4 · 3 · 0 · 0</td></tr>
+<tr><td class="mono">timer_tasks · history_scheduled_tasks</td><td class="mono">(shard_id, visibility_timestamp, task_id)</td><td><code>TimerTaskInfo</code>, …</td><td class="num">11 · 0</td></tr>
+<tr><td class="mono">tasks_v2</td><td class="mono">(range_hash, task_queue_id, pass, task_id)</td><td>matching backlog → <code>persistence.v1.AllocatedTaskInfo</code>; <code>pass</code> is the fairness stride key</td><td class="num">0</td></tr>
+<tr><td class="mono">task_queues_v2</td><td class="mono">(range_hash, task_queue_id)</td><td>data → <code>TaskQueueInfo</code>; range_id for partition ownership</td><td class="num">56</td></tr>
+<tr><td class="mono">tasks · task_queues</td><td class="mono">(range_hash, task_queue_id[, task_id])</td><td>v1 (non-fairness) matching tables</td><td class="num">0 · 63</td></tr>
+<tr><td class="mono">task_queue_user_data · build_id_to_task_queue</td><td class="mono">(namespace_id, task_queue_name)</td><td>versioning rules, deployment data → <code>TaskQueueUserData</code></td><td class="num">—</td></tr>
+<tr><td class="mono">queues · queue_messages · queue · queue_metadata</td><td class="mono">(queue_type, queue_name, …)</td><td>DLQs and namespace replication queue</td><td class="num">—</td></tr>
+<tr><td class="mono">cluster_metadata_info · cluster_membership · nexus_endpoints</td><td class="mono">…</td><td>cluster-scope metadata</td><td class="num">—</td></tr>
+</tbody></table>
+<p>Task-table counts are a snapshot taken right after the run. Transfer and visibility tasks are range-deleted once their queue's ack level passes them, and a re-read a few minutes later found both tables empty. Timer tasks persist until they fire. The one remaining on shard 2 is the specimen's retention timer ([[fig:fig-timer1048618]]).</p>
+
+<h3 id="s2-5">2.5 The DataBlob convention</h3>
+<p>The server never stores a bare proto. Everything goes through <code>serialization.Encode</code>, which returns a <code>temporal.api.common.v1.DataBlob{encoding_type, data}</code>. The two halves are written to the <code>data</code> and <code>data_encoding</code> columns.</p>
+<pre><code>// {{T:common/persistence/serialization/codec.go#L59-L102}} (abridged)
+func Encode(m proto.Message, options ...EncodeOption) (*commonpb.DataBlob, error) {
+	return encodeBlob(m, encodingTypeFromEnv(), options...)   // "" → ENCODING_TYPE_PROTO3
+}
+…
+case enumspb.ENCODING_TYPE_PROTO3:
+	data, err := proto.MarshalOptions{Deterministic: opts.deterministic}.Marshal(m)
+	return &amp;commonpb.DataBlob{EncodingType: enumspb.ENCODING_TYPE_PROTO3, Data: data}, nil</code></pre>
+<ul>
+<li><b>Encoding string on disk:</b> <code>EncodingType.String()</code> from api-go's helper map, which gives <code>"Proto3"</code> (1) and <code>"Json"</code> (2). All specimen rows read <code>Proto3</code>.</li>
+<li><b>JSON</b> is selectable only through the test environment variable <code>TEMPORAL_TEST_DATA_ENCODING</code> ({{T:common/persistence/serialization/codec.go#L15-L39}}). Decoding supports both.</li>
+<li><b>Determinism</b> is opt-in (<code>WithDeterministicProto3</code>). By default map fields such as <code>Payload.metadata</code> and <code>request_ids</code> are marshaled in Go's map iteration order, so identical state can produce different bytes. Never compare persisted blobs byte for byte.</li>
+</ul>
+
+<h3 id="s2-6">2.6 Cassandra: one table, many row kinds</h3>
+<p>On Cassandra, <code>executions</code> is a multiplexed table. The partition key is <code>shard_id</code>, and a <code>type</code> column discriminates shard, execution, transfer, timer, replication and visibility rows ({{T:schema/cassandra/temporal/schema.cql#L7-L9}}). Non-execution rows use fixed sentinel UUIDs in the <code>namespace_id</code>/<code>workflow_id</code>/<code>run_id</code> clustering columns. Nibble 3 of each sentinel encodes the row type:</p>
+<table class="ref compact"><thead><tr><th>row</th><th>namespace_id</th><th>workflow_id</th><th>run_id</th></tr></thead><tbody>
+<tr><td>shard</td><td class="mono">10000000-<b>1</b>000-f000-f000-000000000000</td><td class="mono">20000000-1000-f000-…</td><td class="mono">30000000-1000-f000-…</td></tr>
+<tr><td>transfer task</td><td class="mono">10000000-<b>3</b>000-f000-f000-000000000000</td><td class="mono">20000000-3000-…</td><td class="mono">30000000-3000-…</td></tr>
+<tr><td>timer task</td><td class="mono">10000000-<b>4</b>000-f000-f000-000000000000</td><td class="mono">20000000-4000-…</td><td class="mono">30000000-4000-…</td></tr>
+<tr><td>replication task</td><td class="mono">10000000-<b>5</b>000-f000-f000-000000000000</td><td class="mono">20000000-5000-…</td><td class="mono">30000000-5000-…</td></tr>
+<tr><td>visibility task / repl. DLQ</td><td class="mono">10000000-<b>6</b>000-f000-f000-000000000000</td><td class="mono">20000000-6000-…</td><td class="mono">30000000-6000-…</td></tr>
+<tr><td>generic history task</td><td class="mono">10000000-<b>8</b>000-f000-f000-000000000000</td><td class="mono">20000000-8000-…</td><td class="mono">30000000-8000-…</td></tr>
+</tbody></table>
+<p>Because every row of a shard shares one partition, a single <code>BATCH … IF range_id = ?</code> gives atomic, fenced writes across execution state and its tasks. Every mutation batch includes <code>templateUpdateLeaseQuery</code>, an <code>UPDATE executions SET range_id = ? … IF range_id = ?</code> on the shard row ({{T:common/persistence/cassandra/mutable_state_store.go#L22-L31}}, used at {{T:common/persistence/cassandra/mutable_state_store.go#L453}}). This is the Cassandra equivalent of the SQL transaction. <code>history_node</code> instead partitions by <code>tree_id</code> and clusters by <code>(branch_id ASC, node_id ASC, txn_id DESC)</code> ({{T:schema/cassandra/temporal/schema.cql#L58-L70}}), so the newest transaction for a node sorts first.</p>
+
+<h3 id="s2-7">2.7 The only real file: the SQLite header</h3>
+<p>With the SQLite plugin a whole cluster is one file. Its first 100 bytes are the standard SQLite header. Decoding the specimen's header confirms WAL mode, which the config requests with <code>journal_mode: wal</code>, and 4 KiB pages.</p>
+<!--DUMP sqlite_header|Header of the specimen store run/temporal.db. Big-endian integers per the SQLite file format §1.3.-->
+<div class="src"><h4>Sources</h4><ul>
+<li>{{T:config/development-sqlite-file.yaml#L1-L60}}</li>
+<li>{{T:common/util.go#L418-L430}}</li>
+<li>{{T:service/history/shard/task_key_generator.go#L152-L153}}</li>
+<li>{{T:service/history/configs/config.go#L104}}</li>
+<li>{{T:service/history/configs/config.go#L562}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L33-L53}}</li>
+<li>{{T:schema/sqlite/v3/temporal/schema.sql#L1-L415}}</li>
+<li>{{T:schema/sqlite/version.go#L3-L7}}</li>
+<li>{{T:common/persistence/serialization/codec.go#L15-L121}}</li>
+<li>{{T:common/persistence/sql/history_store.go#L39-L47}}</li>
+<li>{{T:schema/cassandra/temporal/schema.cql#L7-L70}}</li>
+<li>{{T:common/persistence/cassandra/execution_store.go#L15-L67}}</li>
+<li>{{T:common/persistence/cassandra/mutable_state_store.go#L22-L31}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/tasks.proto#L15-L62}}</li>
+<li>{{API:temporal/api/enums/v1/common.proto#L12-L16}}</li>
+<li>{{API:temporal/api/common/v1/message.proto#L20-L23}}</li>
+<li><a class="src-l" href="https://github.com/temporalio/api-go/blob/v1.63.5/enums/v1/common.go-helpers.pb.go">api-go/enums/v1/common.go-helpers.pb.go@v1.63.5</a></li>
+<li><a class="src-l" href="https://www.sqlite.org/fileformat.html#the_database_header">sqlite.org/fileformat.html#the_database_header</a></li>
+</ul></div>
+</section>

@@ -1,0 +1,115 @@
+
+<section class="chapter" data-sheet="SHEET 05" id="ch5">
+<div class="chap-no">Chapter 5</div>
+<h2 id="s5">5 Mutable state, tasks &amp; indexes</h2>
+<p class="lede">The metadata layer: the materialized per-execution record, the "current run" pointer, the version history, the task-queue keys that address matching's backlog, the visibility index, and the outbox of history tasks.</p>
+
+<h3 id="s5-1">5.1 WorkflowExecutionInfo: the execution record</h3>
+<p><code>executions.data</code> holds <code>persistence.v1.WorkflowExecutionInfo</code>, which has over 90 fields ({{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L56}}). A completed execution keeps only a few maps. Pending activities, timers and children live in the <code>*_info_maps</code> tables and are removed as they resolve, so all of those were empty for the specimen. The fields worth knowing by heart:</p>
+<table class="ref compact">
+<thead><tr><th>#</th><th>field</th><th>specimen</th><th>meaning</th></tr></thead>
+<tbody>
+<tr><td class="num">7</td><td class="mono">completion_event_batch_id</td><td class="num">15</td><td>node_id of the batch that holds the close event, for fast result lookup</td></tr>
+<tr><td class="num">17</td><td class="mono">last_running_clock</td><td class="num">1048616</td><td>task ID at the last RUNNING mutation</td></tr>
+<tr><td class="num">18</td><td class="mono">last_first_event_id</td><td class="num">15</td><td>node_id of the most recent batch</td></tr>
+<tr><td class="num">19</td><td class="mono">last_completed_workflow_task_started_event_id</td><td class="num">14</td><td>replay watermark: events ≤ 14 were processed by a completed WFT</td></tr>
+<tr><td class="num">31</td><td class="mono">workflow_task_request_id</td><td class="mono">"emptyUuid"</td><td>sentinel literal <code>emptyUUID</code> ({{T:service/history/workflow/mutable_state_impl.go#L83}})</td></tr>
+<tr><td class="num">52</td><td class="mono">search_attributes</td><td class="mono">BuildIds</td><td>map&lt;string,Payload&gt;, mirrored into visibility (§5.5)</td></tr>
+<tr><td class="num">54</td><td class="mono">version_histories</td><td>1 history, item (16, v0)</td><td>branch token + (event_id, failover version) checkpoints (§5.3)</td></tr>
+<tr><td class="num">56</td><td class="mono">execution_stats.history_size</td><td class="num">1541</td><td>sum of history_node blob sizes (Fig. 06)</td></tr>
+<tr><td class="num">57</td><td class="mono">workflow_run_expiration_time</td><td class="mono">0001-01-01</td><td>zero time = no run timeout (10-byte negative varint, §3.1)</td></tr>
+<tr><td class="num">58</td><td class="mono">last_first_event_txn_id</td><td class="num">1048617</td><td>txn_id of the last node; becomes the next node's prev_txn_id</td></tr>
+<tr><td class="num">59</td><td class="mono">state_transition_count</td><td class="num">9</td><td>number of persisted mutations (9 batches ⇒ 9 transitions)</td></tr>
+<tr><td class="num">64/65</td><td class="mono">close_transfer_task_id / close_visibility_task_id</td><td class="num">1048619 / 1048620</td><td>task IDs of the close tasks; the second becomes visibility <code>_version</code></td></tr>
+<tr><td class="num">71/73</td><td class="mono">activity_count / user_timer_count</td><td class="num">1 / 1</td><td>lifetime counters (not pending counts)</td></tr>
+<tr><td class="num">83/84</td><td class="mono">root_workflow_id / root_run_id</td><td class="mono">order-1001 / 01a0e5b9…</td><td>root of the parent-child tree (self for a top-level run)</td></tr>
+</tbody></table>
+<!--DUMP exec_data|executions.data for the specimen (WorkflowExecutionInfo, 762 B). Decode table limited to two levels.|depth=1-->
+
+<h3 id="s5-2">5.2 State, status and the current-run pointer</h3>
+<p>Two enums describe an execution, and they are orthogonal. <b>State</b> is the server-internal lifecycle ({{T:proto/internal/temporal/server/api/enums/v1/workflow.proto#L8-L14}}): CREATED 1, RUNNING 2, COMPLETED 3, ZOMBIE 4 (a replicated run that lost conflict resolution), VOID 5, CORRUPTED 6. <b>Status</b> is the public outcome ({{API:temporal/api/enums/v1/workflow.proto#L73-L82}}): RUNNING 1, COMPLETED 2, FAILED 3, CANCELED 4, TERMINATED 5, CONTINUED_AS_NEW 6, TIMED_OUT 7, PAUSED 8. A closed execution always has state 3. Status then tells how it closed.</p>
+<!--DUMP exec_state|executions.state (WorkflowExecutionState, 181 B): state 3/status 2; request_ids maps the start request to (event_type 1, event_id 1).-->
+<p><code>current_executions</code> is keyed without run_id, <code>(shard_id, namespace_id, workflow_id)</code>. It stores the current <code>run_id</code> plus denormalized <code>state</code>/<code>status</code>/<code>start_time</code> columns (specimen: 3, 2, 2026-09-28 01:55:24.253) and the same <code>WorkflowExecutionState</code> blob. Start-workflow conflict checks (ID reuse and conflict policies) read this single row. The row survives closure, so the reuse policy can inspect the last run's status.</p>
+
+<h3 id="s5-3">5.3 Version histories</h3>
+<p><code>version_histories</code> records, per branch, the last event ID written under each failover version. The specimen has one branch and one item, <code>{event_id: 16}</code>. The version is 0 because the namespace is local, and proto3 omits 0. In a global namespace every failover appends an item such as <code>(event_id, version)</code>. When clusters diverge, the lowest common ancestor of two version histories is where the branch forks during conflict resolution, which is why histories are trees.</p>
+<pre><code>version_histories {                               // WorkflowExecutionInfo #54 (87 B)
+  histories[0] {
+    branch_token: 0a 24 "01a0e5b9-57dd-72b4-…" 12 24 "01a0e5b9-57dd-7387-…"   // HistoryBranch
+    items: [ { event_id: 16 /* version: 0 omitted */ } ]
+  }
+  // current_version_history_index: 0 omitted
+}</code></pre>
+
+<h3 id="s5-4">5.4 Task-queue keys</h3>
+<p>Matching persists backlog and metadata per <b>partition × type × subqueue</b>. On SQL the key is a byte string built by <code>taskQueueId()</code> ({{T:common/persistence/sql/task_util.go#L53-L77}}), and its farm Fingerprint32 is the leading <code>range_hash</code> column, which shards rows across the key space:</p>
+<!--DUMP tq_id|Root partition "orders", workflow type (23 B). farm.Fingerprint32 = 0x9e65fcf7 = 2657484023, the stored range_hash.-->
+<!--DUMP tq_id3|Partition 3, activity type (31 B). Non-root partitions use the reserved /_sys/ name.-->
+<p>The specimen namespace has 8 <code>task_queues_v2</code> rows for <code>orders</code>, 4 partitions × 2 types. The partition count is <code>matching.numTaskqueue{Read,Write}Partitions</code>, default 4 (<code>GlobalDefaultNumTaskQueuePartitions</code>, {{T:common/dynamicconfig/shared_constants.go#L9}}). System queues are pinned to 1 ({{T:common/dynamicconfig/shared_constants.go#L11-L50}}). Pollers and adds are spread across partitions. Non-root partitions forward unmatched polls and tasks to their parent in a tree with up to <code>matching.forwarderMaxChildrenPerNode</code> = 20 children per node ({{T:common/dynamicconfig/constants.go#L1422-L1424}}), so a poll can match a task held by another partition.</p>
+<table class="ref compact"><thead><tr><th>range_hash</th><th>task_queue_id suffix (after 16-byte ns UUID)</th><th>partition</th><th>type</th></tr></thead><tbody>
+<tr><td class="num">2657484023</td><td class="mono">"orders" 01</td><td>0 (root)</td><td>workflow</td></tr>
+<tr><td class="num">457921391</td><td class="mono">"orders" 02</td><td>0 (root)</td><td>activity</td></tr>
+<tr><td class="num">2577681259</td><td class="mono">"/_sys/orders/1" 01</td><td>1</td><td>workflow</td></tr>
+<tr><td class="num">1227085914</td><td class="mono">"/_sys/orders/1" 02</td><td>1</td><td>activity</td></tr>
+<tr><td class="num">3941315224</td><td class="mono">"/_sys/orders/2" 01</td><td>2</td><td>workflow</td></tr>
+<tr><td class="num">2456938220</td><td class="mono">"/_sys/orders/2" 02</td><td>2</td><td>activity</td></tr>
+<tr><td class="num">2403210745</td><td class="mono">"/_sys/orders/3" 01</td><td>3</td><td>workflow</td></tr>
+<tr><td class="num">227461878</td><td class="mono">"/_sys/orders/3" 02</td><td>3</td><td>activity</td></tr>
+</tbody></table>
+<!--DUMP tq_root_wf|task_queues_v2.data for the root workflow partition (TaskQueueInfo, 71 B). subqueues keyed by priority 3: default key = (matching.priorityLevels 5 + 1) / 2.-->
+<p><code>tasks_v2</code> adds a <code>pass</code> column before <code>task_id</code> ({{T:schema/sqlite/v3/temporal/schema.sql#L114-L125}}). Tasks are read in <code>(pass, task_id)</code> order, where <code>pass</code> advances by stride scheduling per fairness key. Weighted fairness across tenants of one queue is therefore a property of the primary-key sort, not of an in-memory structure. The subqueue bit (0x80 in the type byte plus a varint subqueue ID) keeps priority levels in separate key ranges.</p>
+
+<h3 id="s5-5">5.5 Visibility: the query index</h3>
+<p>List and Count queries never touch <code>executions</code>. Visibility tasks (category 4) project each execution into the visibility store: Elasticsearch, or the <code>executions_visibility</code> table on SQL. This is the specimen's actual row:</p>
+<table class="ref compact"><thead><tr><th>column</th><th>value</th><th>derived from</th></tr></thead><tbody>
+<tr><td class="mono">namespace_id / run_id</td><td class="mono">73ab11db-… / 01a0e5b9-…</td><td>PK (CHAR(64), textual UUIDs, unlike the BINARY(16) in the main store)</td></tr>
+<tr><td class="mono">_version</td><td class="num">1048620</td><td>visibility task ID = <code>close_visibility_task_id</code>. Upserts apply only <code>WHERE _version &lt; EXCLUDED._version</code></td></tr>
+<tr><td class="mono">status · history_length · history_size_bytes</td><td class="mono">2 · 16 · 1541</td><td>close-time snapshot</td></tr>
+<tr><td class="mono">execution_duration</td><td class="num">1065945934</td><td>ns from execution_time to close_time</td></tr>
+<tr><td class="mono">state_transition_count</td><td class="num">9</td><td>WorkflowExecutionInfo #59</td></tr>
+<tr><td class="mono">encoding · memo</td><td class="mono">Proto3 · (empty)</td><td>memo stored as a blob, not indexed</td></tr>
+<tr><td class="mono">search_attributes</td><td class="mono">{"BuildIds":"unversioned♡unversioned:45efeb93…"}</td><td>JSON; SQLite joins KeywordList values with U+2661 "♡" for FTS5 ({{T:common/persistence/sql/sqlplugin/sqlite/visibility.go#L14}})</td></tr>
+<tr><td class="mono">BuildIds, Keyword01…, Int01…</td><td>—</td><td><code>GENERATED ALWAYS AS (JSON_EXTRACT(search_attributes,…))</code> columns; custom SAs map to pre-allocated typed slots</td></tr>
+</tbody></table>
+<p>Search attributes use the <code>type</code> metadata key to choose an index type: <code>Keyword</code>, <code>KeywordList</code>, <code>Text</code>, <code>Int</code>, <code>Double</code>, <code>Bool</code> or <code>Datetime</code>. The server-managed <code>BuildIds</code> SA is a <code>KeywordList</code> whose JSON array data (<code>["unversioned","unversioned:45efeb93…"]</code>) comes from the worker build IDs that completed WFTs.</p>
+
+<h3 id="s5-6">5.6 History tasks: the outbox</h3>
+<p>Each shard keeps one logical queue per task <b>category</b> ({{T:service/history/tasks/category.go#L21-L27}}). Immediate categories are keyed by <code>task_id</code>. Scheduled categories are keyed by <code>(visibility_timestamp, task_id)</code>, so a range scan over time finds due timers.</p>
+<table class="ref compact"><thead><tr><th>id</th><th>category</th><th>kind</th><th>SQL table</th><th>representative task types (enum value)</th></tr></thead><tbody>
+<tr><td class="num">1</td><td>transfer</td><td>immediate</td><td class="mono">transfer_tasks</td><td>TRANSFER_WORKFLOW_TASK (3), TRANSFER_ACTIVITY_TASK (4), CLOSE_EXECUTION (5), CANCEL_EXECUTION (6), START_CHILD (7), SIGNAL (8), RESET (10), DELETE (24)</td></tr>
+<tr><td class="num">2</td><td>timer</td><td>scheduled</td><td class="mono">timer_tasks</td><td>WORKFLOW_TASK_TIMEOUT (12), ACTIVITY_TIMEOUT (13), USER_TIMER (14), WORKFLOW_RUN_TIMEOUT (15), DELETE_HISTORY_EVENT (16), ACTIVITY_RETRY_TIMER (17), WORKFLOW_BACKOFF_TIMER (18), WORKFLOW_EXECUTION_TIMEOUT (29)</td></tr>
+<tr><td class="num">3</td><td>replication</td><td>immediate</td><td class="mono">replication_tasks</td><td>REPLICATION_HISTORY (1), SYNC_ACTIVITY (2), SYNC_WORKFLOW_STATE (25), SYNC_HSM (30), SYNC_VERSIONED_TRANSITION (31)</td></tr>
+<tr><td class="num">4</td><td>visibility</td><td>immediate</td><td class="mono">visibility_tasks</td><td>START (19), UPSERT (20), CLOSE (21), DELETE (22)</td></tr>
+<tr><td class="num">5</td><td>archival</td><td>scheduled</td><td class="mono">history_scheduled_tasks</td><td>ARCHIVAL_ARCHIVE_EXECUTION (26)</td></tr>
+<tr><td class="num">6</td><td>memory timer</td><td>scheduled, in-memory</td><td>—</td><td>speculative WFT timeouts, never persisted ({{T:service/history/tasks/workflow_task_timer.go#L72}})</td></tr>
+<tr><td class="num">7</td><td>outbound</td><td>immediate</td><td class="mono">history_immediate_tasks</td><td>STATE_MACHINE_OUTBOUND (27): Nexus operations, callbacks</td></tr>
+</tbody></table>
+<p>The full <code>TaskType</code> enum (33 defined values between 1 and 36; 9, 11 and 23 are retired) is in Appendix B. The one timer that remained after the specimen closed is the retention deleter. Its fire time is close_time + 72 h retention + a <b>full jitter</b> drawn from <code>[0, history.retentionTimerJitterDuration)</code>, default 30 min ({{T:service/history/workflow/task_generator.go#L356-L357}}). The specimen drew 1129.4 s: 1790560525.319 + 259200 + 1129.423 = 1790820854.742.</p>
+<!--DUMP timer_1048618|timer_tasks.data for the retention timer (TimerTaskInfo, 197 B): TASK_TYPE_DELETE_HISTORY_EVENT carrying the branch token of the tree to delete.-->
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L56-L384}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L385-L412}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L510}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/tasks.proto#L40-L62}}</li>
+<li>{{T:proto/internal/temporal/server/api/enums/v1/workflow.proto#L8-L14}}</li>
+<li>{{T:proto/internal/temporal/server/api/enums/v1/task.proto#L17-L70}}</li>
+<li>{{API:temporal/api/enums/v1/workflow.proto#L73-L82}}</li>
+<li>{{T:common/persistence/sql/task_util.go#L42-L77}}</li>
+<li>{{T:common/tqid/task_queue_id.go#L18-L19}}</li>
+<li>{{T:common/tqid/task_queue_id.go#L444}}</li>
+<li>{{T:common/dynamicconfig/shared_constants.go#L9-L50}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L1370-L1380}}</li>
+<li>{{T:schema/sqlite/v3/temporal/schema.sql#L93-L146}}</li>
+<li>{{T:schema/sqlite/v3/visibility/schema.sql#L1-L40}}</li>
+<li>{{T:common/persistence/sql/sqlplugin/sqlite/visibility.go#L14}}</li>
+<li>{{T:common/persistence/sql/sqlplugin/sqlite/visibility.go#L44-L54}}</li>
+<li>{{T:common/persistence/visibility/store/sql/visibility_store.go#L777}}</li>
+<li>{{T:service/history/tasks/category.go#L21-L68}}</li>
+<li>{{T:common/persistence/sql/execution_tasks.go#L35-L95}}</li>
+<li>{{T:service/matching/config.go#L406-L408}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L1614-L1616}}</li>
+<li>{{T:service/history/workflow/task_generator.go#L350-L360}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L2259-L2262}}</li>
+</ul></div>
+</section>

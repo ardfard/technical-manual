@@ -1,0 +1,73 @@
+
+<section class="chapter" data-sheet="SHEET 07" id="ch7">
+<div class="chap-no">Chapter 7</div>
+<h2 id="s7">7 Network &amp; reading</h2>
+<p class="lede">The public surface is one gRPC service, and most of it is mirrored to HTTP/JSON. This chapter covers the bytes a worker and a client exchange: framing, the RPCs of the specimen run, task tokens, sticky execution, and how history is read back.</p>
+
+<h3 id="s7-1">7.1 Service surface</h3>
+<div class="stat-row">
+  <div><b>123</b><span>WorkflowService RPCs</span></div>
+  <div><b>100</b><span>with HTTP mapping</span></div>
+  <div><b>23</b><span>gRPC-only</span></div>
+  <div><b>12</b><span>OperatorService RPCs</span></div>
+</div>
+<p><code>service WorkflowService</code> ({{API:temporal/api/workflowservice/v1/service.proto#L29}}) is the only API SDKs need. Most RPCs carry a <code>google.api.http</code> annotation with two bindings, <code>/namespaces/{namespace}/…</code> and <code>/api/v1/namespaces/{namespace}/…</code>, served by the frontend's HTTP port (7243 in dev) using protojson. The 23 unmapped RPCs are the worker-facing and streaming-style calls: <code>PollWorkflowTaskQueue</code>, <code>PollActivityTaskQueue</code>, <code>RespondWorkflowTaskCompleted/Failed</code>, <code>RespondQueryTaskCompleted</code>, <code>PollNexusTaskQueue</code>, <code>RespondNexusTask*</code>, <code>ShutdownWorker</code>, <code>ResetStickyTaskQueue</code>, <code>ExecuteMultiOperation</code>, <code>PollWorkflowExecutionUpdate</code>, visibility legacy <code>List{Open,Closed}WorkflowExecutions</code>/<code>ScanWorkflowExecutions</code>, and a few admin calls. Workers must therefore speak gRPC.</p>
+<table class="ref compact"><thead><tr><th>RPC</th><th>HTTP binding</th><th>source</th></tr></thead><tbody>
+<tr><td class="mono">StartWorkflowExecution</td><td class="mono">POST /namespaces/{namespace}/workflows/{workflow_id}</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L97-L103}}</td></tr>
+<tr><td class="mono">GetWorkflowExecutionHistory</td><td class="mono">GET …/workflows/{execution.workflow_id}/history</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L131-L136}}</td></tr>
+<tr><td class="mono">SignalWorkflowExecution</td><td class="mono">POST …/workflows/{workflow_execution.workflow_id}/signal/{signal_name}</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L471-L477}}</td></tr>
+<tr><td class="mono">SignalWithStartWorkflowExecution</td><td class="mono">POST …/workflows/{workflow_id}/signal-with-start/{signal_name}</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L498-L506}}</td></tr>
+<tr><td class="mono">QueryWorkflow</td><td class="mono">POST …/workflows/{execution.workflow_id}/query/{query.query_type}</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L677-L683}}</td></tr>
+<tr><td class="mono">DescribeWorkflowExecution</td><td class="mono">GET …/workflows/{execution.workflow_id}</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L693-L698}}</td></tr>
+<tr><td class="mono">UpdateWorkflowExecution</td><td class="mono">POST …/workflows/{workflow_execution.workflow_id}/update/{request.input.name}</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L1216-L1222}}</td></tr>
+<tr><td class="mono">RespondActivityTaskCompleted</td><td class="mono">POST /namespaces/{namespace}/activity-complete</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L298-L304}}</td></tr>
+<tr><td class="mono">GetSystemInfo</td><td class="mono">GET /system-info</td><td>{{API:temporal/api/workflowservice/v1/service.proto#L734-L739}}</td></tr>
+</tbody></table>
+
+<h3 id="s7-2">7.2 Framing on the wire</h3>
+<p>gRPC runs over HTTP/2. Each unary call is a HEADERS frame (<code>:path = /temporal.api.workflowservice.v1.WorkflowService/StartWorkflowExecution</code>, <code>content-type: application/grpc</code>, plus the Temporal metadata of §6.1) followed by DATA frames carrying one <b>Length-Prefixed-Message</b>: a 1-byte compressed flag, a 4-byte big-endian length, then the protobuf body. Temporal adds nothing to this envelope.</p>
+<!--DUMP grpc_frame|First 32 bytes of the DATA payload for the specimen StartWorkflowExecution call: 5-byte gRPC prefix, then the protobuf request.-->
+<p>Size ceilings: the Go SDK's client accepts messages up to <code>defaultMaxPayloadSize = 128 MiB</code> ({{SDK:internal/grpc_dialer.go#L56-L57}}), and internode clients use the same 128 MiB ({{T:common/rpc/grpc.go#L42-L43}}). The binding limits are the per-payload and per-history limits of §8.1, which are far smaller.</p>
+
+<h3 id="s7-3">7.3 Starting an execution</h3>
+<!--DUMP rpc_StartWorkflowExecution|StartWorkflowExecutionRequest as sent by the SDK (150 B). request_id is the client idempotency key; the three timeouts are present-but-zero.-->
+<!--DUMP rpc_StartWorkflowExecution_resp|StartWorkflowExecutionResponse (150 B): run_id, started=true, a Link to event 1, and the first execution run ID.-->
+<p>The response carries a <code>Link.WorkflowEvent</code> (#4 → #1) that points at <code>(namespace, workflow_id, run_id, event_ref{event_id:1, event_type:STARTED})</code>. Links are how Nexus and callbacks cross-reference executions. The same structure can be attached to events (<code>HistoryEvent.links</code>, #302).</p>
+
+<h3 id="s7-4">7.4 Polling and the task token</h3>
+<p>Workers long-poll. The frontend holds a <code>PollWorkflowTaskQueue</code> open until matching supplies a task or the poll times out. After the first WFT, the specimen worker polled its <b>sticky</b> queue, which is private to the process and holds its cached workflow state:</p>
+<!--DUMP rpc_PollWorkflowTaskQueue|PollWorkflowTaskQueueRequest on the sticky queue (222 B): kind=STICKY, normal_name="orders", worker_instance_key and worker_control_task_queue for worker commands.-->
+<p>The response bundles an opaque <code>task_token</code>, the execution, and history. For a non-sticky poll that is the full history. For a sticky poll it is only the events since the worker's last completed WFT.</p>
+<!--DUMP rpc_PollWorkflowTaskQueue_resp|PollWorkflowTaskQueueResponse for the first WFT (610 B). Decode limited to two levels; history carries events 1–3.|depth=1-->
+<p>The task token is a plain, unencrypted <code>temporal.server.api.token.v1.Task</code> ({{T:proto/internal/temporal/server/api/token/v1/message.proto#L39-L56}}). Treat it as opaque, but it is not secret: it names the namespace, execution and scheduling coordinates, and the server re-validates all of them against mutable state on respond. A stale token, one with the wrong <code>scheduled_event_id</code>, <code>attempt</code> or <code>started_event_id</code>, gets <code>NotFound</code>. <code>clock</code> is a vector clock <code>(shard_id, task-ID clock, cluster_id)</code> that lets history reject responses that arrive after a shard moved.</p>
+<!--DUMP task_token|The 118-byte task token from the first poll response, decoded as token.v1.Task.-->
+
+<h3 id="s7-5">7.5 Completing a workflow task</h3>
+<!--DUMP rpc_RespondWorkflowTaskCompleted|RespondWorkflowTaskCompletedRequest for the first WFT (460 B): one ScheduleActivityTask command with request_eager_execution, and sticky_attributes that enroll the sticky queue.|depth=2-->
+<p>Three fields in this request control what the server does next:</p>
+<ul>
+<li><b><code>sticky_attributes</code></b> (#4). The worker registers <code>vm:bd9b0888-…</code> with <code>schedule_to_start_timeout = 5 s</code>. Subsequent WFTs go to that queue (event 8's <code>task_queue.kind = STICKY</code>, [[fig:fig-hnode06]]). If the worker does not pick up a task within 5 s, the server reschedules it on the normal queue <code>orders</code> with full history.</li>
+<li><b><code>request_eager_execution</code></b> on the command. The worker asks for the activity task to be returned inline in the response instead of dispatched through matching. The specimen got it: the response below carries the activity task in <code>activity_tasks</code>, with <code>started_time</code> equal to event 6's timestamp. The concurrent <code>PollActivityTaskQueue</code> returned an empty response (0 B).</li>
+<li><b><code>return_new_workflow_task</code></b> (#5). This allows the server to return the next WFT inline if one is already due, saving a poll round-trip.</li>
+</ul>
+
+<!--DUMP rpc_RespondWorkflowTaskCompleted_resp|RespondWorkflowTaskCompletedResponse (316 B): the eagerly dispatched activity task, including its own task token and the server-filled retry policy.|depth=1-->
+
+<h3 id="s7-6">7.6 Reading history and results</h3>
+<!--DUMP rpc_GetWorkflowExecutionHistory|GetWorkflowExecutionHistoryRequest used by client.Get() (67 B): wait_new_event long-poll filtered to the close event.-->
+<p>A client waiting for a result does not page through the whole history. It long-polls with <code>wait_new_event = true</code> and <code>history_event_filter_type = CLOSE_EVENT</code> (2), and the server responds only once the close event exists. Full reads page by events with <code>maximum_page_size</code>. The frontend default is <code>frontend.historyMaxPageSize = 256</code> ({{T:common/primitives/constants.go#L21}}), and a <code>next_page_token</code> encodes the position. The response also has a <code>raw_history</code> form (<code>repeated DataBlob</code>) that returns stored batches without decoding. That is the SQL <code>history_node.data</code> of Chapter 4 passed through.</p>
+<div class="note"><b>Reading tip</b> To inspect bytes yourself, <code>temporal workflow show --output json</code> gives protojson. For wire bytes, reuse this repository's approach: a unary client interceptor that marshals <code>req</code>/<code>reply</code> ({{SDK:converter/grpc_interceptor.go}} shows the SDK's own payload-rewriting interceptor pattern).</div>
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{API:temporal/api/workflowservice/v1/service.proto#L29-L1230}}</li>
+<li>{{API:temporal/api/workflowservice/v1/request_response.proto#L148}}</li>
+<li>{{API:temporal/api/workflowservice/v1/request_response.proto#L281-L400}}</li>
+<li>{{T:proto/internal/temporal/server/api/token/v1/message.proto#L39-L56}}</li>
+<li>{{SDK:internal/grpc_dialer.go#L56-L66}}</li>
+<li>{{T:common/rpc/grpc.go#L42-L43}}</li>
+<li>{{T:common/primitives/constants.go#L16-L21}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L747-L749}}</li>
+<li>{{SDK:internal/internal_task_pollers.go#L1380-L1395}}</li>
+<li><a class="src-l" href="https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md">grpc/doc/PROTOCOL-HTTP2.md (Length-Prefixed-Message)</a></li>
+</ul></div>
+</section>

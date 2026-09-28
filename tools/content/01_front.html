@@ -1,0 +1,262 @@
+
+<header class="cover" id="top">
+  <div class="cover-top"><div>Engineering Edition · Reference Manual</div><div>Rev. 2026.09</div></div>
+  <div class="cover-body">
+    <div class="chap-no">Durable execution · wire, disk &amp; protocol</div>
+    <h1>TEMPORAL<small>Technical Manual — history, payloads, persistence &amp; RPC at the byte level</small></h1>
+    <p class="sub">A dense reference for engineers who already run Temporal and want the exact truth: which bytes a workflow execution becomes, where they are stored, how they are keyed, sharded, batched and versioned, and what travels on the wire. Each structure is traced to its <code>.proto</code> or Go source at a pinned commit. Each hex dump comes from a real run: one workflow (<code>OrderWorkflow</code>, 16 events) executed against a Temporal server built from source, with bytes read back from its SQLite file and captured from its gRPC calls.</p>
+    <div class="stat-row">
+      <div><b>60</b><span>event types</span></div>
+      <div><b>17</b><span>command types</span></div>
+      <div><b>123</b><span>WorkflowService RPCs</span></div>
+      <div><b>1 541 B</b><span>sample history</span></div>
+      <div><b>2<sup>20</sup></b><span>task IDs / range</span></div>
+    </div>
+  </div>
+  <div class="titleblock">
+    <div><b>Server</b>temporalio/temporal <span class="mono">1.33.0</span><br><span class="mono" style="font-size:11px">@d8f9c6d8</span></div>
+    <div><b>API (protos)</b>temporalio/api<br><span class="mono" style="font-size:11px">@1c27468c · go v1.63.5</span></div>
+    <div><b>SDK</b>temporalio/sdk-go <span class="mono">1.49.0</span><br><span class="mono" style="font-size:11px">@626130f1</span></div>
+    <div><b>Specimen</b>SQLite store · 4 shards<br><span class="mono" style="font-size:11px">run 01a0e5b9-57dd-72b4-…</span></div>
+  </div>
+</header>
+
+<div class="mobile-toc plate"><div class="plate-h"><span>Contents</span><span><a href="#toc">full TOC ↓</a></span></div></div>
+
+<!-- ================= PLATE 01 ================= -->
+<div class="plate" id="plate-anatomy">
+  <div class="plate-h"><span>Plate 01</span><span>System anatomy</span></div>
+  <div class="plate-b">
+  <figure class="fig" data-cap="System anatomy: roles, default ports (development config) and the persistence tables each role owns." id="fig-anatomy" style="margin:0;border:0;padding:0;background:none">
+  <svg viewBox="0 0 960 470" role="img" aria-label="Temporal system anatomy diagram">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    </defs>
+    <!-- client -->
+    <rect class="box" x="10" y="30" width="190" height="86"/>
+    <text x="22" y="52" class="sans" font-size="15" font-weight="700">Client / Starter</text>
+    <text x="22" y="72" font-size="10.5" class="muted">StartWorkflowExecution</text>
+    <text x="22" y="86" font-size="10.5" class="muted">SignalWorkflowExecution</text>
+    <text x="22" y="100" font-size="10.5" class="muted">QueryWorkflow · Update…</text>
+    <!-- worker -->
+    <rect class="box3" x="10" y="150" width="190" height="170"/>
+    <text x="22" y="172" class="sans" font-size="14" font-weight="700">Worker process (SDK)</text>
+    <rect class="box" x="22" y="184" width="166" height="40"/>
+    <text x="30" y="200" font-size="11">Workflow code</text><text x="30" y="215" font-size="9.5" class="muted">deterministic · replayed</text>
+    <rect class="box" x="22" y="232" width="166" height="40"/>
+    <text x="30" y="248" font-size="11">Activity code</text><text x="30" y="263" font-size="9.5" class="muted">side effects · retried</text>
+    <text x="22" y="292" font-size="10" class="muted">pollers: Poll{Workflow,Activity}</text>
+    <text x="22" y="306" font-size="10" class="muted">sticky queue host:uuid</text>
+    <!-- frontend -->
+    <rect class="box2" x="280" y="80" width="170" height="200"/>
+    <text x="292" y="104" class="sans" font-size="16" font-weight="700">Frontend</text>
+    <text x="292" y="122" font-size="10.5" class="blu">gRPC :7233 · HTTP :7243</text>
+    <text x="292" y="146" font-size="10" class="muted">auth · rate limits</text>
+    <text x="292" y="160" font-size="10" class="muted">namespace → id</text>
+    <text x="292" y="174" font-size="10" class="muted">validation, limits</text>
+    <text x="292" y="196" font-size="10" class="muted">routes by</text>
+    <text x="292" y="210" font-size="10">fp32(nsID_wfID)</text>
+    <text x="292" y="224" font-size="10">  mod N + 1</text>
+    <text x="292" y="252" font-size="10" class="muted">membership :6933</text>
+    <!-- history -->
+    <rect class="box" x="530" y="20" width="250" height="170"/>
+    <text x="542" y="42" class="sans" font-size="16" font-weight="700">History</text>
+    <text x="630" y="42" font-size="10.5" class="blu">:7234</text>
+    <text x="542" y="60" font-size="10" class="muted">owns shards · mutable state · event log</text>
+    <g font-size="10">
+      <rect class="box4" x="542" y="72" width="52" height="30"/><text x="552" y="91">sh 1</text>
+      <rect class="box3" x="600" y="72" width="52" height="30"/><text x="610" y="91">sh 2</text>
+      <rect class="box4" x="658" y="72" width="52" height="30"/><text x="668" y="91">sh 3</text>
+      <rect class="box4" x="716" y="72" width="52" height="30"/><text x="726" y="91">sh 4</text>
+    </g>
+    <text x="542" y="122" font-size="10" class="muted">queues per shard (category id):</text>
+    <text x="542" y="137" font-size="10">1 transfer · 2 timer · 3 repl</text>
+    <text x="542" y="151" font-size="10">4 visibility · 5 archival</text>
+    <text x="542" y="165" font-size="10">6 memory-timer · 7 outbound</text>
+    <text x="542" y="182" font-size="9.5" class="acc">order-1001 → shard 2 (specimen)</text>
+    <!-- matching -->
+    <rect class="box" x="530" y="220" width="250" height="110"/>
+    <text x="542" y="242" class="sans" font-size="16" font-weight="700">Matching</text>
+    <text x="640" y="242" font-size="10.5" class="blu">:7235</text>
+    <text x="542" y="262" font-size="10" class="muted">task queue partitions (default 4)</text>
+    <text x="542" y="278" font-size="10">orders          (root, p0)</text>
+    <text x="542" y="292" font-size="10">/_sys/orders/1 … /3</text>
+    <text x="542" y="308" font-size="10" class="muted">sync match ⇄ backlog (tasks_v2)</text>
+    <!-- internal worker -->
+    <rect class="box" x="820" y="130" width="130" height="90"/>
+    <text x="832" y="152" class="sans" font-size="14" font-weight="700">Worker svc</text>
+    <text x="832" y="168" font-size="10.5" class="blu">:7239</text>
+    <text x="832" y="186" font-size="9.5" class="muted">system workflows</text>
+    <text x="832" y="200" font-size="9.5" class="muted">scanners, batch,</text>
+    <text x="832" y="213" font-size="9.5" class="muted">schedules</text>
+    <!-- persistence -->
+    <rect class="box5" x="230" y="370" width="720" height="90"/>
+    <text x="242" y="392" class="sans" font-size="15" font-weight="700">Persistence  (SQL: sqlite/mysql/postgres · Cassandra)   +   Visibility store</text>
+    <g font-size="10">
+    <text x="242" y="412">shards · executions · current_executions · history_node · history_tree · buffered_events</text>
+    <text x="242" y="427">*_info_maps · transfer/timer/visibility/replication_tasks · history_{immediate,scheduled}_tasks</text>
+    <text x="242" y="442">tasks_v2 · task_queues_v2 · task_queue_user_data · namespaces · cluster_membership · queues …</text>
+    </g>
+    <!-- arrows -->
+    <g style="color:var(--ink)">
+    <path class="ln" d="M200,70 L280,110" marker-end="url(#ar)"/>
+    <path class="lna" style="color:var(--accent)" d="M200,200 L280,190" marker-end="url(#ar)"/>
+    <path class="lna" style="color:var(--accent)" d="M280,220 L200,250" marker-end="url(#ar)"/>
+    <text x="206" y="228" font-size="9.5" class="acc">long-poll</text>
+    <path class="lnb" style="color:var(--blue)" d="M450,130 L530,110" marker-end="url(#ar)"/>
+    <path class="lnb" style="color:var(--blue)" d="M450,230 L530,270" marker-end="url(#ar)"/>
+    <path class="ln" d="M655,190 L655,220" marker-end="url(#ar)"/>
+    <text x="648" y="212" font-size="9" class="muted" text-anchor="end">AddWorkflowTask / AddActivityTask</text>
+    <path class="ln2" d="M780,110 L820,160"/>
+    <path class="ln" d="M655,330 L655,370" marker-end="url(#ar)"/>
+    <path class="ln" d="M700,190 C 900,250 900,330 860,370" marker-end="url(#ar)"/>
+    <path class="ln2" d="M365,280 L365,370"/>
+    </g>
+    <text x="10" y="350" font-size="10" class="muted">── sync RPC   ─ ─ membership / internal   orange = worker loop</text>
+  </svg>
+  <figcaption>System anatomy: roles, default ports from <code>config/development-sqlite-file.yaml</code>, shard routing and the tables each role owns. Shard 2 is where the specimen workflow landed.</figcaption>
+  </figure>
+  </div>
+</div>
+
+<!-- ================= PLATE 02 ================= -->
+<div class="plate" id="plate-magic">
+  <div class="plate-h"><span>Plate 02</span><span>Magic bytes &amp; signatures</span></div>
+  <div class="plate-b">
+  <p style="margin-top:0">Temporal has no single file format. It stacks protobuf messages in database blobs, gRPC frames and SDK payloads. These byte patterns identify each layer in a raw dump. All of them appear in the specimen.</p>
+  <div class="magic">
+    <div class="mcard"><div class="mb">0a 08 65 6e 63 6f 64 69 6e 67</div><div class="mt">Payload metadata entry "encoding"</div><div class="md">Payload.metadata (field 1, LEN) map entry whose key is <code>encoding</code>. Almost every Payload on disk or on the wire begins with this entry. Deterministic marshaling sorts map keys, so it comes first.</div><div class="ms">{{API:temporal/api/common/v1/message.proto#L33-L34}}</div></div>
+    <div class="mcard"><div class="mb">6a 73 6f 6e 2f 70 6c 61 69 6e</div><div class="mt"><code>json/plain</code> · default encoding</div><div class="md">Siblings: <code>binary/null</code>, <code>binary/plain</code>, <code>json/protobuf</code>, <code>binary/protobuf</code>, and <code>binary/zlib</code> from the zlib codec.</div><div class="ms">{{SDK:converter/metadata.go#L5-L17}}</div></div>
+    <div class="mcard"><div class="mb">0a <i>LL</i> 08 01 12 0b …</div><div class="mt">history_node.data = History{events}</div><div class="md">Each event batch is a <code>temporal.api.history.v1.History</code>. It starts with <code>0a</code> (events #1 LEN) and then <code>08 &lt;event_id&gt;</code>. The specimen's first batch starts <code>0a d5 01 08 01 12 0b</code>.</div><div class="ms">{{T:common/persistence/serialization/serializer.go#L193-L195}}</div></div>
+    <div class="mcard"><div class="mb">"Proto3"</div><div class="mt">data_encoding column</div><div class="md">Every <code>data</code>/<code>state</code> blob column is paired with an encoding string. That string is <code>EncodingType.String()</code>, so ENCODING_TYPE_PROTO3 (=1) is stored as <code>Proto3</code>. The test-only JSON path stores <code>Json</code>.</div><div class="ms">{{T:common/persistence/sql/history_store.go#L39-L47}}</div></div>
+    <div class="mcard"><div class="mb">00 00 00 00 96</div><div class="mt">gRPC length-prefixed message</div><div class="md">A 1-byte compressed flag and a 4-byte big-endian length precede every protobuf on an HTTP/2 DATA frame. <code>0x96</code> = 150 B, the specimen's StartWorkflowExecutionRequest.</div><div class="ms"><a class="src-l" href="https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md">grpc/doc/PROTOCOL-HTTP2.md</a></div></div>
+    <div class="mcard"><div class="mb">78 9c</div><div class="mt">zlib stream header</div><div class="md">Data field of a <code>binary/zlib</code> payload. The codec compresses the <i>marshaled inner Payload</i>, not only its data.</div><div class="ms">{{SDK:converter/codec.go#L64-L91}}</div></div>
+    <div class="mcard"><div class="mb">xxxxxxxx-xxxx-<u>7</u>xxx-…</div><div class="mt">UUIDv7 run IDs &amp; tree IDs</div><div class="md">Server-generated IDs use <code>uuid.NewV7()</code>, so they sort by creation time. Specimen: <code>01a0e5b9-57dd-72b4-…</code>. The 48-bit ms prefix is 0x01a0e5b957dd.</div><div class="ms">{{T:common/primitives/uuid.go#L69-L77}}</div></div>
+    <div class="mcard"><div class="mb">0x100000 = 1 048 576</div><div class="mt">First task ID of range 1</div><div class="md">Task IDs are <code>rangeID &lt;&lt; 20</code> plus a sequence. Event 1 of the specimen carries task_id 1048576 (<code>80 80 40</code> as a varint).</div><div class="ms">{{T:service/history/shard/task_key_generator.go#L152-L153}}</div></div>
+    <div class="mcard"><div class="mb">&lt;ns 16B&gt; "orders" 01</div><div class="mt">SQL task_queue_id</div><div class="md">Namespace UUID bytes, queue name, then one type byte (1 = workflow, 2 = activity). High bit 0x80 marks an appended subqueue varint. The key's farm Fingerprint32 is <code>range_hash</code>.</div><div class="ms">{{T:common/persistence/sql/task_util.go#L53-L77}}</div></div>
+    <div class="mcard"><div class="mb">53 51 4c 69 74 65 20 66 6f 72 6d 61 74 20 33 00</div><div class="mt">"SQLite format 3\0"</div><div class="md">Header of the specimen store (page size 0x1000 = 4096, WAL journal). This is the only real file magic in a Temporal deployment. Everything inside it is protobuf.</div><div class="ms"><a class="src-l" href="https://www.sqlite.org/fileformat.html">sqlite.org/fileformat.html §1.3</a></div></div>
+    <div class="mcard"><div class="mb">10000000-1000-f000-f000-000000000000</div><div class="mt">Cassandra shard-row sentinel</div><div class="md">The Cassandra <code>executions</code> table multiplexes row kinds. Fake namespace/workflow/run UUIDs mark shard, transfer, timer and replication rows.</div><div class="ms">{{T:common/persistence/cassandra/execution_store.go#L15-L60}}</div></div>
+    <div class="mcard"><div class="mb">archetype_id 2918170192</div><div class="mt">CHASM workflow archetype</div><div class="md"><code>farm.Fingerprint32("workflow.workflow")</code>. It appears in <code>chasm_task_info</code> of workflow timer tasks, including the specimen's retention timer.</div><div class="ms">{{T:chasm/registrable_component.go#L220-L222}}</div></div>
+    <div class="mcard"><div class="mb">/_sys/&lt;name&gt;/&lt;n&gt;</div><div class="mt">Non-root partition name</div><div class="md">Partition 0 keeps the user's name. Partitions 1…N−1 are addressed as <code>/_sys/orders/1</code>, and user queues may not use this prefix.</div><div class="ms">{{T:common/tqid/task_queue_id.go#L18-L19}}</div></div>
+  </div>
+  </div>
+</div>
+
+<!-- ================= PLATE 03 ================= -->
+<div class="plate" id="plate-nesting">
+  <div class="plate-h"><span>Plate 03</span><span>Key structures · on-disk nesting</span></div>
+  <div class="plate-b">
+  <figure class="fig" data-cap="Nesting of a single history_node row down to a Payload, with real offsets from specimen batch node_id=1 (259 B)." id="fig-nesting" style="margin:0;border:0;padding:0;background:none">
+  <svg viewBox="0 0 960 420" role="img" aria-label="Nesting of history_node row">
+    <rect class="box5" x="10" y="10" width="940" height="400"/>
+    <text x="22" y="32" class="sans" font-size="15" font-weight="700">history_node row</text>
+    <text x="180" y="32" font-size="11" class="muted">PK (shard_id=2, tree_id=run_id, branch_id, node_id=1, txn_id=−1048578)  prev_txn_id=0  data_encoding='Proto3'</text>
+    <rect class="box2" x="30" y="46" width="900" height="352"/>
+    <text x="42" y="68" class="sans" font-size="14" font-weight="700">data: temporal.api.history.v1.History</text><text x="340" y="68" font-size="11" class="muted">259 B = 2 events</text>
+    <rect class="box" x="50" y="80" width="600" height="306"/>
+    <text x="62" y="100" font-size="12"><tspan class="acc">0a d5 01</tspan> events[0]: HistoryEvent  (213 B body @0x03)</text>
+    <g font-size="11">
+      <text x="72" y="122"><tspan class="acc">08</tspan> 01               event_id = 1</text>
+      <text x="72" y="138"><tspan class="acc">12</tspan> 0b …             event_time  {seconds, nanos}</text>
+      <text x="72" y="154"><tspan class="acc">18</tspan> 01               event_type = WORKFLOW_EXECUTION_STARTED</text>
+      <text x="72" y="170"><tspan class="acc">28</tspan> 80 80 40         task_id = 1048576</text>
+      <text x="72" y="186"><tspan class="acc">32</tspan> bd 01            attributes oneof #6 (189 B)</text>
+    </g>
+    <rect class="box4" x="90" y="196" width="540" height="180"/>
+    <text x="102" y="214" font-size="11.5">WorkflowExecutionStartedEventAttributes</text>
+    <g font-size="10.5">
+      <text x="110" y="232"><tspan class="acc">0a</tspan> workflow_type{name:"OrderWorkflow"}</text>
+      <text x="110" y="247"><tspan class="acc">2a</tspan> task_queue{name:"orders", kind:NORMAL}</text>
+      <text x="110" y="262"><tspan class="acc">32</tspan> input: Payloads</text>
+      <text x="110" y="352"><tspan class="acc">3a 00</tspan> 42 00  4a 02 08 0a   timeouts (0, 0, 10 s)</text>
+      <text x="110" y="366"><tspan class="acc">72</tspan> orig_run_id · <tspan class="acc">82 01</tspan> first_exec_run_id · <tspan class="acc">e2 01</tspan> workflow_id</text>
+    </g>
+    <rect class="box3" x="130" y="270" width="480" height="70"/>
+    <text x="142" y="287" font-size="10.5"><tspan class="acc">0a 26</tspan> payloads[0]: Payload (38 B)</text>
+    <text x="152" y="304" font-size="10.5"><tspan class="acc">0a 16</tspan> metadata{ "encoding" → "json/plain" }</text>
+    <text x="152" y="320" font-size="10.5"><tspan class="acc">12 0c</tspan> data = 22 6f 72 64 65 72 2d 31 30 30 31 22</text>
+    <text x="152" y="334" font-size="10" class="muted">                "order-1001" (JSON string incl. quotes)</text>
+    <rect class="box" x="660" y="80" width="262" height="120"/>
+    <text x="682" y="100" font-size="12"><tspan class="acc">0a 29</tspan> events[1] (41 B body @0xda)</text>
+    <g font-size="10.5">
+    <text x="690" y="120">event_id = 2</text>
+    <text x="690" y="135">event_type = 5 WFT_SCHEDULED</text>
+    <text x="690" y="150">task_id = 1048577</text>
+    <text x="690" y="165"><tspan class="acc">52</tspan> attrs #10: task_queue,</text>
+    <text x="690" y="180">  start_to_close 10 s, attempt 1</text>
+    </g>
+    <text x="672" y="230" font-size="10.5" class="muted">tag byte = (field&lt;&lt;3)|wire</text>
+    <text x="672" y="246" font-size="10.5" class="muted">0a = f1 LEN · 08 = f1 VARINT</text>
+    <text x="672" y="262" font-size="10.5" class="muted">12 = f2 LEN · 18 = f3 VARINT</text>
+    <text x="672" y="278" font-size="10.5" class="muted">28 = f5 VARINT · 32 = f6 LEN</text>
+    <text x="672" y="294" font-size="10.5" class="muted">e2 01 = f28 LEN (2-byte tag)</text>
+    <text x="672" y="310" font-size="10.5" class="muted">ea 12 = f301 LEN (user_metadata)</text>
+  </svg>
+  <figcaption>Nesting of one <code>history_node</code> row down to a single Payload. Offsets and bytes are taken from specimen batch <code>node_id=1</code> (259 B), which is dumped in full in [[fig:fig-hnode01]].</figcaption>
+  </figure>
+  <div class="legend" style="margin-top:12px">
+    <span><i class="r-tag"></i>tag (field#, wire type)</span>
+    <span><i class="r-len"></i>length prefix</span>
+    <span><i class="r-int"></i>varint / fixed scalar</span>
+    <span><i class="r-enum"></i>enum / bool</span>
+    <span><i class="r-str"></i>UTF-8 string / text bytes</span>
+    <span><i class="r-bytes"></i>opaque bytes</span>
+  </div>
+  <p style="font-size:12.5px;color:var(--muted);margin-bottom:0">Every hex dump in this manual uses this legend. Hovering a byte highlights the whole field and names its path. Hovering a row in the decode table highlights its bytes.</p>
+  </div>
+</div>
+
+<!-- ================= FRONT MATTER ================= -->
+<section class="chapter" data-sheet="SHEET 00" id="front">
+<div class="chap-no">Front matter</div>
+<h2 id="s0">0 About this edition</h2>
+<p class="lede">Scope, the pinned sources, how the specimen was produced, and the notation used.</p>
+
+<h3 id="s0-1">0.1 Scope and non-goals</h3>
+<p>This manual covers the <b>data plane</b> of open-source Temporal: the protobuf schemas in <code>temporalio/api</code>, the server's internal persistence protos, the SQL and Cassandra table layouts, identifier and key derivation (shards, task queues, task IDs), the SDK payload conversion chain, and the gRPC surface. Operations topics such as Helm, metrics and dashboards appear only where they change bytes. Temporal Cloud internals are out of scope.</p>
+
+<h3 id="s0-2">0.2 Source pins</h3>
+<table class="ref">
+<thead><tr><th>Repository</th><th>Commit</th><th>Commit date</th><th>Version marker</th></tr></thead>
+<tbody>
+<tr><td>temporalio/temporal</td><td class="mono">d8f9c6d86b2cd0ea5c27d0694a598da84c6d337d</td><td class="mono">2026-09-25</td><td><code>ServerVersion = "1.33.0"</code> {{T:common/headers/version_checker.go#L26}}</td></tr>
+<tr><td>temporalio/api</td><td class="mono">1c27468c756fc8abc800235c33b74c6eba638c88</td><td class="mono">2026-09-16</td><td>Go bindings: <code>go.temporal.io/api v1.63.5</code> (sdk-go), <code>v1.63.6-0.20260909222256-20151aa90480</code> (server <code>go.mod</code>)</td></tr>
+<tr><td>temporalio/sdk-go</td><td class="mono">626130f1fd9de50cfd90b884a3fb796504f22dc1</td><td class="mono">2026-09-16</td><td><code>SDKVersion = "1.49.0"</code> {{SDK:internal/version.go#L11}}</td></tr>
+</tbody></table>
+<p>Every <span class="mono">repo/path:line</span> link in this manual resolves to one of these commits. Field numbers, enum values and defaults drift between releases. When your deployment is older, check the same file at your tag.</p>
+
+<h3 id="s0-3">0.3 How the specimen was produced</h3>
+<ol>
+<li>Built the server from source: <code>go build ./cmd/server</code>, 1.33.0.</li>
+<li>Started it with <code>config/development-sqlite-file.yaml</code> changed in two places: <code>numHistoryShards: 4</code> and a file-backed <code>databaseName</code>. Registered namespace <code>default</code> with 72 h retention.</li>
+<li>Ran a Go worker (<code>tools/probe/main.go</code> in this repository) that registers <code>OrderWorkflow(orderID)</code>. The workflow calls activity <code>Charge(42)</code>, then <code>workflow.Sleep(1s)</code>, then returns <code>"order-1001:ok:42"</code>. A unary gRPC interceptor captured the protobuf body of every RPC.</li>
+<li>Read <code>history_node</code>, <code>executions</code>, <code>shards</code>, <code>task_queues_v2</code> and <code>timer_tasks</code> directly out of the SQLite file.</li>
+<li>Decoded every blob with <code>tools/annot</code>. It walks bytes with <code>protowire</code> and resolves field names through the <i>compiled</i> protobuf descriptors of the server and API modules, so labels come from the real schema, not a hand-written one.</li>
+</ol>
+<p>Only the bytes were captured, so timestamps belong to the capture run. Build IDs, the worker identity (<code>14056@vm@</code>) and UUIDs are real values from that run.</p>
+
+<h3 id="s0-4">0.4 Notation</h3>
+<dl class="kv">
+<dt>#n</dt><dd>protobuf field number <i>n</i></dd>
+<dt>VARINT / I64 / LEN / I32</dt><dd>protobuf wire types 0 / 1 / 2 / 5</dd>
+<dt>tag</dt><dd>varint <code>(field_number &lt;&lt; 3) | wire_type</code>. Fields 1–15 fit in one byte, 16–2047 in two.</dd>
+<dt>fp32(x)</dt><dd>farmhash <code>Fingerprint32</code> (github.com/dgryski/go-farm) over the bytes of <i>x</i></dd>
+<dt>0x…</dt><dd>hexadecimal. Offsets in dumps are hex and relative to the start of the blob.</dd>
+<dt>WFT</dt><dd>workflow task</dd>
+<dt>ns</dt><dd>namespace. Names are strings; <code>namespace_id</code> is a UUID.</dd>
+</dl>
+<div class="src"><h4>Sources</h4><ul>
+<li>{{T:config/development-sqlite-file.yaml}}</li>
+<li>{{T:common/headers/version_checker.go#L26}}</li>
+<li>{{SDK:internal/version.go#L8-L19}}</li>
+<li><a class="src-l" href="https://protobuf.dev/programming-guides/encoding/">protobuf.dev/programming-guides/encoding</a></li>
+<li><a class="src-l" href="https://github.com/dgryski/go-farm">github.com/dgryski/go-farm</a></li>
+<li>This repo: <span class="mono">tools/probe/main.go</span>, <span class="mono">tools/annot/main.go</span>, <span class="mono">data/annot.json</span></li>
+</ul></div>
+</section>
+
+<section class="chapter" data-sheet="SHEET 00b" id="toc">
+<div class="chap-no">Contents</div>
+<h2 id="s-toc">Table of contents</h2>
+<!--FULLTOC-->
+</section>

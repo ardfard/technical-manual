@@ -1,0 +1,100 @@
+
+<section class="chapter" data-sheet="SHEET 04" id="ch4">
+<div class="chap-no">Chapter 4</div>
+<h2 id="s4">4 History batches &amp; payload encodings</h2>
+<p class="lede">The event log is stored as a tree of branches made of transaction-sized nodes. User data inside those events is a <code>Payload</code> produced by the SDK's converter chain and optionally transformed by codecs. This chapter covers both on-disk "pages" and the value encodings inside them.</p>
+
+<h3 id="s4-1">4.1 Trees, branches, tokens</h3>
+<p>History is stored as a <b>tree</b> so that reset and multi-cluster conflict resolution can fork it without copying. <code>tree_id</code> is the run ID of the run that created the tree. <code>branch_id</code> identifies one path. A forked branch records its <code>ancestors</code> as <code>(branch_id, begin_node_id, end_node_id)</code> ranges, so it can read shared prefixes from the parent branch.</p>
+<pre><code>// {{T:proto/internal/temporal/server/api/persistence/v1/history_tree.proto#L10-L35}}
+message HistoryTreeInfo   { HistoryBranch branch_info = 1; Timestamp fork_time = 2; string info = 3; bytes branch_token = 4 [deprecated]; }
+message HistoryBranch     { string tree_id = 1; string branch_id = 2; repeated HistoryBranchRange ancestors = 3; }
+message HistoryBranchRange{ string branch_id = 1; int64 begin_node_id = 2; int64 end_node_id = 3; }</code></pre>
+<p>A <b>branch token</b> is a serialized <code>HistoryBranch</code>. For the specimen it is 78 bytes: <code>0a 24</code> + 36-char tree ID + <code>12 24</code> + 36-char branch ID, with no ancestors. The same 78 bytes appear in <code>WorkflowExecutionInfo.version_histories[].branch_token</code>, in the retention timer task and in <code>history_tree</code>. The <code>info</code> string <code>"&lt;nsID&gt;:&lt;workflowID&gt;:&lt;runID&gt;"</code> exists so the garbage-collection scanner can find orphaned trees ({{T:common/persistence/data_interfaces.go#L1431-L1434}}).</p>
+<!--DUMP htree|history_tree.data for the specimen (HistoryTreeInfo, 255 B). tree_id = run_id; branch_id is a fresh UUIDv7 minted 1 ms later.-->
+
+<h3 id="s4-2">4.2 Nodes: one row per transaction</h3>
+<p>Each call that appends events writes one <code>history_node</code> row per event batch. <code>node_id</code> is the <b>first event ID</b> of the batch. <code>txn_id</code> is a fresh shard task ID generated for the write (<code>ms.shard.GenerateTaskIDs(len(newEventsBatches))</code>). <code>prev_txn_id</code> links to the previous node's transaction, taken from <code>executionInfo.LastFirstEventTxnId</code> ({{T:service/history/workflow/mutable_state_impl.go#L8585-L8600}}).</p>
+<figure class="fig" data-cap="The specimen branch as stored: 9 nodes chained by prev_txn_id (all values read from SQLite)." id="fig-nodes">
+<svg viewBox="0 0 960 250" role="img" aria-label="History node chain">
+  <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g font-size="10" style="color:var(--muted)">
+  <text x="10" y="18" class="muted">event id →</text>
+  <!-- scale: event 1..16 → x = 20 + (id-1)*58 -->
+  <g>
+    <rect class="box2" x="20"  y="30" width="112" height="56"/><text x="26" y="46">node 1  · 259 B</text><text x="26" y="60">ev 1–2</text><text x="26" y="76" class="acc">txn 1048578 ← 0</text>
+    <rect class="box2" x="136" y="30" width="54"  height="56"/><text x="140" y="46">n3 · 116</text><text x="140" y="60">ev 3</text><text x="140" y="76" class="acc">…583</text>
+    <rect class="box2" x="194" y="30" width="112" height="56"/><text x="200" y="46">node 4 · 223 B</text><text x="200" y="60">ev 4–5</text><text x="200" y="76" class="acc">txn …589 ← …583</text>
+    <rect class="box3" x="310" y="30" width="170" height="56"/><text x="316" y="46">node 6 · 280 B</text><text x="316" y="60">ev 6–8 (6 = transient start)</text><text x="316" y="76" class="acc">txn …595 ← …589</text>
+    <rect class="box2" x="484" y="30" width="54"  height="56"/><text x="488" y="46">n9 · 116</text><text x="488" y="60">ev 9</text><text x="488" y="76" class="acc">…599</text>
+    <rect class="box2" x="542" y="30" width="112" height="56"/><text x="548" y="46">node 10 · 156 B</text><text x="548" y="60">ev 10–11</text><text x="548" y="76" class="acc">txn …604 ← …599</text>
+    <rect class="box2" x="658" y="30" width="112" height="56"/><text x="664" y="46">node 12 · 118 B</text><text x="664" y="60">ev 12–13</text><text x="664" y="76" class="acc">txn …608 ← …604</text>
+    <rect class="box2" x="774" y="30" width="54"  height="56"/><text x="778" y="46">n14 · 116</text><text x="778" y="60">ev 14</text><text x="778" y="76" class="acc">…612</text>
+    <rect class="box4" x="832" y="30" width="112" height="56"/><text x="838" y="46">node 15 · 157 B</text><text x="838" y="60">ev 15–16</text><text x="838" y="76" class="acc">txn …617 ← …612</text>
+  </g>
+  </g>
+  <g font-size="11">
+  <text x="20" y="120">SQL row for node 15:</text>
+  <text x="20" y="138" class="muted">shard_id=2  tree_id=0x01A0E5B957DD72B4BE734A740836A44E  branch_id=0x01A0E5B957DD73879C8BAB69ACC06B94</text>
+  <text x="20" y="156" class="muted">node_id=15  txn_id=<tspan class="acc">−1048617</tspan>  prev_txn_id=1048612  data_encoding='Proto3'  length(data)=157</text>
+  <text x="20" y="182">sum of node sizes = 259+116+223+280+116+156+118+116+157 = <tspan font-weight="700">1541 B</tspan> = execution_stats.history_size</text>
+  <text x="20" y="200">last node's txn 1048617 = WorkflowExecutionInfo.last_first_event_txn_id (#58)</text>
+  <text x="20" y="218" class="muted">UUID columns are raw 16-byte BINARY; inside protos the same IDs are 36-char strings (2.25× larger)</text>
+  </g>
+</svg>
+<figcaption>The specimen branch as stored: 9 nodes chained by <code>prev_txn_id</code>. All values were read from SQLite. A forward read keeps, per <code>node_id</code>, the row with the highest <code>txn_id</code>, and drops any row whose <code>txn_id</code> is lower than that of the last accepted node. That rejects leftovers of failed writes that reused a node ID ({{T:common/persistence/history_manager.go#L1039-L1072}}). Reverse reads follow <code>prev_txn_id</code> instead ({{T:common/persistence/history_manager.go#L1075-L1100}}).</figcaption>
+</figure>
+<div class="key"><b>Why negative</b> On SQL the plugin stores <code>txn_id</code> multiplied by −1 (<code>row.TxnID = -row.TxnID</code>, {{T:common/persistence/sql/sqlplugin/sqlite/events.go#L55-L56}}). The ascending primary key <code>(…, node_id, txn_id)</code> then returns the newest transaction of each node first. This matches Cassandra's <code>CLUSTERING ORDER BY (… txn_id DESC)</code> without needing a descending index.</div>
+<p>Batch boundaries are therefore <i>transaction</i> boundaries, not size-based pages. A batch has no size cap of its own. The per-event limits (<code>limit.blobSize.*</code>) and the per-execution totals (§8.1) bound it indirectly. The three-event node 6 shows how history can look out of order in time: event 6's <code>event_time</code> (+37.1 ms) is the real start time kept in mutable state, but the event was only written at completion (+41.6 ms).</p>
+<!--DUMP hnode_06|history_node.data, node_id=6 (280 B): ActivityTaskStarted + ActivityTaskCompleted + WorkflowTaskScheduled on the sticky queue.-->
+
+<h3 id="s4-3">4.3 Buffered events</h3>
+<p>While a WFT is in flight (between STARTED and COMPLETED), new external events such as signals, activity completions and timer firings cannot be appended. The history would otherwise contain events the worker never saw between STARTED and COMPLETED. They go to <code>buffered_events</code> (SQL) or <code>WorkflowMutableState.buffered_events</code> (#10) and are flushed into the next batch after COMPLETED. <code>history.maximumBufferedEventsBatch</code> = 100 caps the buffer ({{T:common/dynamicconfig/constants.go#L2651-L2653}}). Their placeholder ID is <code>BufferedEventID = −123</code> until flush, and <code>TransientEventID = −124</code> marks the activity-started placeholder seen in §1.4 ({{T:common/constants.go#L19-L24}}).</p>
+
+<h3 id="s4-4">4.4 Payload converters: the encoding matrix</h3>
+<p>The Go SDK's default <code>DataConverter</code> is a composite. It tries converters in a fixed order, and the first one that returns a non-nil payload wins ({{SDK:converter/composite_data_converter.go#L84-L102}}, order at {{SDK:converter/default_data_converter.go#L3-L16}}). Decoding dispatches on <code>metadata["encoding"]</code>.</p>
+<table class="ref">
+<thead><tr><th>#</th><th>converter</th><th>matches</th><th><code>encoding</code></th><th>extra metadata</th><th>data bytes</th><th>specimen payload</th></tr></thead>
+<tbody>
+<tr><td class="num">1</td><td class="mono">NilPayloadConverter</td><td>untyped <code>nil</code> (interface nil)</td><td class="mono">binary/null</td><td>—</td><td>absent (field 2 omitted)</td><td class="num">25 B</td></tr>
+<tr><td class="num">2</td><td class="mono">ByteSlicePayloadConverter</td><td><code>[]byte</code></td><td class="mono">binary/plain</td><td>—</td><td>raw bytes</td><td class="num">30 B (<code>de ad</code>)</td></tr>
+<tr><td class="num">3</td><td class="mono">ProtoJSONPayloadConverter</td><td><code>proto.Message</code></td><td class="mono">json/protobuf</td><td><code>messageType</code> = full name</td><td>protojson</td><td class="num">117 B</td></tr>
+<tr><td class="num">4</td><td class="mono">ProtoPayloadConverter</td><td><code>proto.Message</code> (shadowed by #3 when encoding; decodes <code>binary/protobuf</code>)</td><td class="mono">binary/protobuf</td><td><code>messageType</code></td><td>proto wire</td><td>—</td></tr>
+<tr><td class="num">5</td><td class="mono">JSONPayloadConverter</td><td>anything <code>encoding/json</code> accepts</td><td class="mono">json/plain</td><td>—</td><td>JSON text</td><td class="num">38 B (<code>"order-1001"</code>), 28 B (<code>42</code>)</td></tr>
+<tr><td class="num">+</td><td class="mono">zlib PayloadCodec</td><td>post-conversion, per payload</td><td class="mono">binary/zlib</td><td>—</td><td>zlib(<i>marshaled inner Payload</i>)</td><td class="num">77 B</td></tr>
+</tbody></table>
+<!--DUMP payload_string|json/plain Payload for the string "order-1001" (38 B). The data is JSON, so the quotes are part of it.-->
+<!--DUMP payload_int|json/plain Payload for int 42 (28 B): data = ASCII "42".-->
+<div class="two">
+<div><!--DUMP payload_<nil>|binary/null Payload for nil (25 B): metadata only; data is absent, not empty.--></div>
+<div><!--DUMP payload_[]uint8|binary/plain Payload for []byte{0xde,0xad} (30 B).--></div>
+</div>
+<!--DUMP payload_*common.WorkflowExecution|json/protobuf Payload for a proto.Message (117 B). Two metadata entries; messageType names the proto type for decoding.-->
+
+<h3 id="s4-5">4.5 Codecs: transforming whole payloads</h3>
+<p>A <code>PayloadCodec</code> runs after conversion, on the client and worker only. The server never sees plaintext unless the codec emits it. The zlib reference codec marshals the <i>entire</i> input Payload, compresses it, and returns a new Payload with <code>encoding=binary/zlib</code>. It keeps the result only if it is smaller, unless <code>AlwaysEncode</code> is set ({{SDK:converter/codec.go#L64-L91}}). The specimen used <code>AlwaysEncode</code> on a 38-byte payload, which produced 52 bytes of zlib data and a 77-byte Payload, a 2× expansion. Small payloads do not compress, which is why the size check exists.</p>
+<!--DUMP payload_zlib|binary/zlib Payload (77 B). data begins 78 9c (zlib, default compression) and inflates to the 38-byte json/plain Payload above.-->
+<p>Encryption codecs follow the same shape: an opaque <code>data</code> plus metadata that names the scheme and key. For UI and CLI decoding, the SDK ships an HTTP handler that exposes codecs at <code>POST …/encode</code> and <code>…/decode</code>, carrying JSON-encoded <code>Payloads</code> ({{SDK:converter/codec.go#L275-L376}}). Search attributes are never passed through codecs, because the server must index them. The SDK serializes typed search attributes with <code>converter.GetDefaultDataConverter()</code>, bypassing the user's converter and codec ({{SDK:internal/internal_search_attributes.go#L398-L405}}).</p>
+<div class="warn"><b>Size accounting</b> Server-side limits apply to the <i>encoded</i> payloads as the server receives them (§8.1). Compression helps you stay under <code>limit.blobSize.error</code>. Encryption usually adds overhead.</div>
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/history_tree.proto#L10-L35}}</li>
+<li>{{T:schema/cassandra/temporal/schema.cql#L58-L81}}</li>
+<li>{{T:schema/sqlite/v3/temporal/schema.sql#L310-L332}}</li>
+<li>{{T:common/persistence/sql/sqlplugin/sqlite/events.go#L50-L60}}</li>
+<li>{{T:common/persistence/sql/history_store.go#L30-L60}}</li>
+<li>{{T:service/history/workflow/mutable_state_impl.go#L8585-L8600}}</li>
+<li>{{T:service/history/workflow/transaction_impl.go#L285-L311}}</li>
+<li>{{T:common/persistence/data_interfaces.go#L1431-L1434}}</li>
+<li>{{T:common/constants.go#L8-L30}}</li>
+<li>{{T:common/persistence/history_manager.go#L1039-L1100}}</li>
+<li>{{SDK:internal/internal_search_attributes.go#L376-L410}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L2651-L2653}}</li>
+<li>{{SDK:converter/default_data_converter.go#L3-L16}}</li>
+<li>{{SDK:converter/composite_data_converter.go#L84-L102}}</li>
+<li>{{SDK:converter/metadata.go#L1-L18}}</li>
+<li>{{SDK:converter/codec.go#L45-L120}}</li>
+<li>{{SDK:converter/codec.go#L275-L376}}</li>
+<li><a class="src-l" href="https://www.rfc-editor.org/rfc/rfc1950">RFC 1950 (zlib: CMF 0x78, FLG 0x9c)</a></li>
+</ul></div>
+</section>

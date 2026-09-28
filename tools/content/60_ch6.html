@@ -1,0 +1,104 @@
+
+<section class="chapter" data-sheet="SHEET 06" id="ch6">
+<div class="chap-no">Chapter 6</div>
+<h2 id="s6">6 Versions, determinism &amp; writers</h2>
+<p class="lede">Several different things are versioned: the server binary, the SDK, the persistence schema, the protobuf contract, multi-cluster ownership (failover versions), and the workflow code itself. Each one leaves a distinct mark in the bytes.</p>
+
+<h3 id="s6-1">6.1 Client ↔ server version negotiation</h3>
+<p>Every SDK call carries three gRPC metadata headers ({{SDK:internal/internal_utils.go#L21-L24}}):</p>
+<table class="ref compact"><thead><tr><th>header</th><th>specimen value</th><th>checked by</th></tr></thead><tbody>
+<tr><td class="mono">client-name</td><td class="mono">temporal-go</td><td>server: selects the supported range</td></tr>
+<tr><td class="mono">client-version</td><td class="mono">1.49.0</td><td>server: must satisfy <code>SupportedClients[client-name]</code>, else <code>ClientVersionNotSupported</code></td></tr>
+<tr><td class="mono">supported-server-versions</td><td class="mono">&gt;=1.0.0 &lt;2.0.0</td><td>server: its own <code>ServerVersion</code> (1.33.0) must fall inside</td></tr>
+</tbody></table>
+<p>The server's table ({{T:common/headers/version_checker.go#L43-L52}}) accepts <code>temporal-go</code>, <code>-java</code>, <code>-php</code>, <code>-typescript</code>, <code>temporal-cli</code> and <code>temporal-server</code> below 2.0.0, and <code>temporal-ui</code> below 3.0.0. <code>temporal-python</code> is defined as a name but has no entry, so Python clients are not range-checked. Internode calls identify as <code>temporal-server</code> and advertise the feature list (<code>follows-next-run-id</code>). The namespace for routing and authorization travels in a <code>temporal-namespace</code> header as well as in the request body ({{SDK:internal/grpc_dialer.go#L66}}).</p>
+<!--DUMP rpc_GetSystemInfo_resp|GetSystemInfoResponse (34 B), the first call every SDK client makes: server_version plus 12 capability booleans (fields 1–12, each 2 bytes) that the SDK uses to gate features.-->
+
+<h3 id="s6-2">6.2 Schema versions</h3>
+<p>Each persistence backend carries its own schema version string, applied by <code>temporal-sql-tool</code>/<code>temporal-cassandra-tool</code> from <code>schema/&lt;db&gt;/…/versioned/vX.Y/</code> manifests. At this commit SQLite is <code>Version = "0.11"</code> and visibility <code>"0.1"</code> ({{T:schema/sqlite/version.go#L3-L7}}). At startup the server checks the stored version with <code>VerifyCompatibleVersion</code> ({{T:common/persistence/schema/version.go#L10}}) and refuses a schema older than it expects. Because every row stores protobuf blobs, most feature work, which only adds proto fields, needs no DDL. Schema versions change only for new tables and columns, such as <code>tasks_v2.pass</code> for fairness or <code>current_chasm_executions</code>.</p>
+
+<h3 id="s6-3">6.3 Proto evolution rules, as practiced</h3>
+<ul>
+<li><b>Numbers are never reused.</b> <code>ShardInfo</code> carries <code>reserved 4; 5; 8–12; 14–16</code> ({{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L33-L53}}). Old blobs with those numbers decode as unknown fields, which proto3 preserves and re-emits.</li>
+<li><b>Enums keep dead values.</b> <code>WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING = 4 [deprecated = true]</code> ({{API:temporal/api/enums/v1/workflow.proto#L32}}), replaced by the separate conflict policy <code>WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING = 3</code>. <code>CommandType</code> skips 15.</li>
+<li><b>Deprecated fields stay on the wire.</b> <code>HistoryTreeInfo.branch_token</code> (#4) is <code>[deprecated = true]</code> yet still written: the specimen's history_tree blob spends 78 of its 255 bytes on it.</li>
+<li><b>New cross-cutting fields go high.</b> Event-level additions use 300+ (<code>user_metadata</code> 301, <code>links</code> 302, <code>principal</code> 303), leaving 6–299 for oneof arms.</li>
+</ul>
+
+<h3 id="s6-4">6.4 Failover versions (multi-cluster)</h3>
+<p>For global namespaces every event and every mutable-state checkpoint carries a <b>failover version</b> (<code>HistoryEvent.version</code> #4, <code>VersionHistoryItem.version</code>). Each cluster owns one residue class modulo <code>failoverVersionIncrement</code>:</p>
+<pre><code>// {{T:common/cluster/metadata.go#L288-L309}}
+next = current/increment*increment + initialFailoverVersion;  if next &lt; current { next += increment }
+IsVersionFromSameCluster(v1, v2) = (v1 - v2) % increment == 0</code></pre>
+<figure class="fig" data-cap="Failover version arithmetic with the development config (increment 10). A cluster with initialFailoverVersion 1 owns versions 1, 11, 21 …" id="fig-failover">
+<svg viewBox="0 0 960 150" role="img" aria-label="Failover version number line">
+  <line class="dim" x1="30" y1="70" x2="930" y2="70"/>
+  <g font-size="11">
+  <g><circle cx="60" cy="70" r="5" style="fill:var(--muted)"/><text x="52" y="95">0</text><text x="30" y="120" class="muted" font-size="10">EmptyVersion</text><text x="30" y="133" class="muted" font-size="10">(local ns: specimen)</text></g>
+  <g><circle cx="120" cy="70" r="6" style="fill:var(--blue)"/><text x="115" y="95">1</text><text x="100" y="50" class="blu">A</text></g>
+  <g><circle cx="180" cy="70" r="6" style="fill:var(--accent)"/><text x="175" y="95">2</text><text x="170" y="50" class="acc">B</text></g>
+  <g><circle cx="420" cy="70" r="6" style="fill:var(--blue)"/><text x="410" y="95">11</text><text x="390" y="50" class="blu">A (after failback)</text></g>
+  <g><circle cx="480" cy="70" r="6" style="fill:var(--accent)"/><text x="470" y="95">12</text></g>
+  <g><circle cx="720" cy="70" r="6" style="fill:var(--blue)"/><text x="710" y="95">21</text></g>
+  <g><circle cx="780" cy="70" r="6" style="fill:var(--accent)"/><text x="770" y="95">22</text><text x="760" y="50" class="acc">B (failover #2)</text></g>
+  </g>
+  <text x="560" y="130" font-size="10.5" class="muted">higher version wins conflict resolution; version % 10 identifies the writer cluster</text>
+</svg>
+<figcaption>Failover version arithmetic with the development config (<code>failoverVersionIncrement: 10</code>, <code>initialFailoverVersion: 1</code>). A failover moves the namespace to the next version owned by the new active cluster. Events keep the version they were written under. Local namespaces use <code>EmptyVersion = 0</code>, so the specimen's events carry no field #4 at all.</figcaption>
+</figure>
+
+<h3 id="s6-5">6.5 Workflow-code versioning and determinism markers</h3>
+<p>Replay is correct only if workflow code emits the same commands for the same history. The Go SDK records non-deterministic inputs as <code>MARKER_RECORDED</code> events. <code>MarkerRecordedEventAttributes</code> carries <code>marker_name</code> #1, a <code>details</code> map&lt;string,Payloads&gt; #2, <code>workflow_task_completed_event_id</code> #3, <code>header</code> #4 and <code>failure</code> #5 ({{API:temporal/api/history/v1/message.proto#L606-L616}}). The marker vocabulary is SDK-defined ({{SDK:internal/internal_command_state_machine.go#L231-L243}}):</p>
+<table class="ref compact"><thead><tr><th>marker_name</th><th>details keys</th><th>produced by</th></tr></thead><tbody>
+<tr><td class="mono">Version</td><td class="mono">change-id, version, version-search-attribute-updated</td><td><code>workflow.GetVersion(changeID, min, max)</code>; no marker ⇒ <code>DefaultVersion = -1</code> on replay ({{SDK:internal/workflow.go#L2413}})</td></tr>
+<tr><td class="mono">SideEffect</td><td class="mono">side-effect-id, data</td><td><code>workflow.SideEffect</code></td></tr>
+<tr><td class="mono">MutableSideEffect</td><td class="mono">side-effect-id, data, mutable-side-effect-call-counter</td><td><code>workflow.MutableSideEffect</code> (recorded only on change)</td></tr>
+<tr><td class="mono">LocalActivity</td><td class="mono">data, result (+ failure)</td><td>local activities: the result is recorded in the next WFT completion</td></tr>
+</tbody></table>
+<p><code>GetVersion</code> also upserts the <code>TemporalChangeVersion</code> search attribute (a <code>KeywordList</code> of <code>fmt.Sprintf("%s-%v", changeID, version)</code>, {{SDK:internal/internal_event_handlers.go#L1059}}). Users may not set it themselves ({{SDK:internal/internal_event_handlers.go#L475-L476}}), and SDK flag 1 caps it at 2048 bytes.</p>
+<h4>SDK behavior flags</h4>
+<p>SDK bug fixes that would change command output are gated by flags. The first WFT that uses the new behavior records the flag in <code>sdk_metadata.lang_used_flags</code>. On replay the SDK enables exactly the flags present in history ({{SDK:internal/internal_flags.go#L14-L45}}):</p>
+<table class="ref compact"><thead><tr><th>flag</th><th>name</th><th>effect</th></tr></thead><tbody>
+<tr><td class="num">1</td><td class="mono">LimitChangeVersionSASize</td><td>TemporalChangeVersion SA capped at 2048 B</td></tr>
+<tr><td class="num">2</td><td class="mono">ChildWorkflowErrorExecution</td><td>child-start sync failures surface on the execution future</td></tr>
+<tr><td class="num">3</td><td class="mono">ProtocolMessageCommand</td><td>protocol messages (updates) ordered via PROTOCOL_MESSAGE commands. <b>Recorded in the specimen.</b></td></tr>
+<tr><td class="num">4</td><td class="mono">PriorityUpdateHandling</td><td>updates handled before the main workflow method</td></tr>
+<tr><td class="num">5</td><td class="mono">BlockedSelectorSignalReceive</td><td>no lost signal when a Selector's default path blocks</td></tr>
+<tr><td class="num">6</td><td class="mono">CancelAwaitTimerOnCondition</td><td>AwaitWithTimeout cancels its timer early</td></tr>
+<tr><td class="num">7</td><td class="mono">MemoUserDCEncode</td><td>memo encoded with the user data converter</td></tr>
+<tr><td class="num">8</td><td class="mono">WorkflowNewChannelLostMessages</td><td>channel message-loss fix</td></tr>
+<tr><td class="num">9</td><td class="mono">OrderedChildCancel</td><td>cancellation follows child-context creation order</td></tr>
+</tbody></table>
+
+<h3 id="s6-6">6.6 Worker build IDs and deployments</h3>
+<p>Each WFT completion stamps the worker's build ID (<code>worker_version.build_id</code> in WorkflowTaskCompleted, <code>worker_version_stamp</code> in the request). The server folds these into the <code>BuildIds</code> search attribute as <code>unversioned</code> and <code>unversioned:&lt;build_id&gt;</code> for unversioned workers, which is how you query executions by the binary that ran them. <code>use_workflow_build_id: true</code> on ActivityTaskScheduled (#13) asks for activities to follow the workflow's build ID. Versioned workers (Worker Deployments) replace this with <code>deployment</code> and <code>versioning_behavior</code> fields and the <code>TemporalWorkerDeploymentVersion</code> SA (§5.5).</p>
+
+<h3 id="s6-7">6.7 Writer fingerprints in the specimen</h3>
+<table class="ref compact"><thead><tr><th>value</th><th>format</th><th>generator</th></tr></thead><tbody>
+<tr><td class="mono">14056@vm@</td><td><code>pid@host@taskqueue</code>. The client-level identity passes an empty task queue.</td><td>{{SDK:internal/internal_utils.go#L146-L148}}</td></tr>
+<tr><td class="mono">vm:bd9b0888-86a4-45d4-8b63-329efd10ec5b</td><td>sticky queue <code>host:uuid</code></td><td>{{SDK:internal/internal_utils.go#L158-L161}}</td></tr>
+<tr><td class="mono">35131bbf-1c81-<b>4</b>422-9d96-…</td><td>UUIDv4 request ID (client)</td><td>SDK</td></tr>
+<tr><td class="mono">01a0e5b9-57dd-<b>7</b>2b4-be73-…</td><td>UUIDv7 run/tree/branch IDs (server)</td><td>{{T:common/primitives/uuid.go#L69-L77}}</td></tr>
+<tr><td class="mono">45efeb93bcfa785063ef710ca798ede5</td><td>MD5 of the worker binary</td><td>{{SDK:internal/checksum.go#L16-L50}}</td></tr>
+<tr><td class="mono">127.0.0.1:7234-4-ecea1253-…</td><td>shard owner: <code>host:port-shardID-uuid</code></td><td>ShardInfo.owner</td></tr>
+</tbody></table>
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{T:common/headers/version_checker.go#L12-L60}}</li>
+<li>{{T:common/headers/version_checker.go#L116-L135}}</li>
+<li>{{SDK:internal/internal_utils.go#L21-L24}}</li>
+<li>{{SDK:internal/internal_utils.go#L146-L161}}</li>
+<li>{{SDK:internal/grpc_dialer.go#L66}}</li>
+<li>{{SDK:internal/version.go#L8-L19}}</li>
+<li>{{T:schema/sqlite/version.go#L3-L7}}</li>
+<li>{{T:common/cluster/metadata.go#L288-L345}}</li>
+<li>{{T:config/development-sqlite-file.yaml#L97-L109}}</li>
+<li>{{T:common/persistence/schema/version.go#L10}}</li>
+<li>{{SDK:internal/internal_command_state_machine.go#L231-L243}}</li>
+<li>{{SDK:internal/internal_flags.go#L14-L45}}</li>
+<li>{{SDK:internal/workflow.go#L2413}}</li>
+<li>{{SDK:internal/internal_event_handlers.go#L457-L476}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L606-L616}}</li>
+<li>{{API:temporal/api/enums/v1/workflow.proto#L17-L46}}</li>
+</ul></div>
+</section>

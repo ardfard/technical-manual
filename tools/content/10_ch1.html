@@ -1,0 +1,107 @@
+
+<section class="chapter" data-sheet="SHEET 01" id="ch1">
+<div class="chap-no">Chapter 1</div>
+<h2 id="s1">1 Mental model</h2>
+<p class="lede">A workflow execution is an append-only event log plus a materialized projection of it. Workers never mutate state. They receive history, run deterministic code over it, and return <i>commands</i>. The server turns accepted commands into <i>events</i>.</p>
+
+<h3 id="s1-1">1.1 Three stores of truth</h3>
+<table class="ref">
+<thead><tr><th>Artifact</th><th>Proto</th><th>Physical home (SQL)</th><th>Written by</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><b>History</b></td><td><code>temporal.api.history.v1.History</code> (<code>repeated HistoryEvent events = 1</code>)</td><td><code>history_node</code>, one row per event batch</td><td>History service, in the same transaction as mutable state</td><td>Source of truth for replay. Immutable once written, except via branching on reset or conflict resolution.</td></tr>
+<tr><td><b>Mutable state</b></td><td><code>persistence.v1.WorkflowExecutionInfo</code> + <code>WorkflowExecutionState</code> + per-entity maps</td><td><code>executions.data/.state</code>, <code>*_info_maps</code></td><td>History service</td><td>Projection used for O(1) decisions: pending activities, timers, next_event_id, version histories.</td></tr>
+<tr><td><b>Tasks</b></td><td><code>TransferTaskInfo</code>, <code>TimerTaskInfo</code>, … ; matching <code>TaskInfo</code></td><td><code>transfer_tasks</code>, <code>timer_tasks</code>, <code>tasks_v2</code>, …</td><td>History (outbox), Matching (backlog)</td><td>Transactional outbox. Guarantees that side effects such as dispatching a WFT or firing a timer follow the state change.</td></tr>
+</tbody></table>
+<div class="key"><b>Invariant</b> History events, mutable state and the tasks derived from them are committed in <b>one</b> persistence transaction per shard (SQL: one DB transaction; Cassandra: one LWT batch conditioned on the shard's <code>range_id</code>). A shard that loses ownership fails its next write with a range-ID mismatch. This fencing is the only mechanism that prevents split-brain writers.</div>
+
+<h3 id="s1-2">1.2 Identity of an execution</h3>
+<dl class="kv">
+<dt>namespace</dt><dd>Tenant boundary. The client sends the name; the server resolves it to <code>namespace_id</code>, a UUID stored as <code>BINARY(16)</code> in SQL and as a 36-char string inside protos. Specimen: <code>default</code> → <code>73ab11db-a831-4574-b804-b43fedd412e7</code>.</dd>
+<dt>workflow_id</dt><dd>User-chosen business key, at most <code>limit.maxIDLength</code> = 1000 characters. There is at most one <i>open</i> run per (namespace, workflow_id). The <code>current_executions</code> row enforces this.</dd>
+<dt>run_id</dt><dd>Server-generated UUID, version 7 in current servers ({{T:common/primitives/uuid.go#L69-L77}}). Specimen <code>01a0e5b9-57dd-72b4-be73-4a740836a44e</code>: its 48-bit millisecond prefix <code>0x01a0e5b957dd</code> = 1790560524253 ms, which matches event 1's <code>event_time</code> (1790560524.253178261 s).</dd>
+<dt>first_execution_run_id</dt><dd>Run ID of the first run in a continue-as-new or retry chain. Carried in the start event (#16) and in <code>WorkflowExecutionState</code> (#8).</dd>
+<dt>request_id</dt><dd>Client idempotency key. Specimen <code>35131bbf-…</code> is persisted as <code>create_request_id</code> and in the <code>request_ids</code> map (→ event_type 1, event_id 1), so a retried StartWorkflowExecution returns the same run.</dd>
+</dl>
+
+<h3 id="s1-3">1.3 Commands in, events out</h3>
+<p>A worker completes a WFT with a list of <code>temporal.api.command.v1.Command</code> ({{API:temporal/api/command/v1/message.proto#L289-L290}}). The history service validates each command and appends the corresponding events. The two numbering spaces are independent.</p>
+<table class="ref compact">
+<thead><tr><th>CommandType (enum value)</th><th>→ EventType(s) appended</th></tr></thead>
+<tbody>
+<tr><td class="mono">SCHEDULE_ACTIVITY_TASK (1)</td><td class="mono">ACTIVITY_TASK_SCHEDULED (10)</td></tr>
+<tr><td class="mono">REQUEST_CANCEL_ACTIVITY_TASK (2)</td><td class="mono">ACTIVITY_TASK_CANCEL_REQUESTED (15), possibly ACTIVITY_TASK_CANCELED (16)</td></tr>
+<tr><td class="mono">START_TIMER (3) / CANCEL_TIMER (6)</td><td class="mono">TIMER_STARTED (17) / TIMER_CANCELED (19)</td></tr>
+<tr><td class="mono">COMPLETE_ (4) / FAIL_ (5) / CANCEL_WORKFLOW_EXECUTION (7)</td><td class="mono">WORKFLOW_EXECUTION_COMPLETED (2) / FAILED (3) / CANCELED (21)</td></tr>
+<tr><td class="mono">REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION (8)</td><td class="mono">REQUEST_CANCEL_EXTERNAL_…_INITIATED (22)</td></tr>
+<tr><td class="mono">RECORD_MARKER (9)</td><td class="mono">MARKER_RECORDED (25)</td></tr>
+<tr><td class="mono">CONTINUE_AS_NEW_WORKFLOW_EXECUTION (10)</td><td class="mono">WORKFLOW_EXECUTION_CONTINUED_AS_NEW (28)</td></tr>
+<tr><td class="mono">START_CHILD_WORKFLOW_EXECUTION (11)</td><td class="mono">START_CHILD_WORKFLOW_EXECUTION_INITIATED (29)</td></tr>
+<tr><td class="mono">SIGNAL_EXTERNAL_WORKFLOW_EXECUTION (12)</td><td class="mono">SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED (37)</td></tr>
+<tr><td class="mono">UPSERT_WORKFLOW_SEARCH_ATTRIBUTES (13)</td><td class="mono">UPSERT_WORKFLOW_SEARCH_ATTRIBUTES (40)</td></tr>
+<tr><td class="mono">PROTOCOL_MESSAGE (14)</td><td class="mono">WORKFLOW_EXECUTION_UPDATE_ACCEPTED (41) / COMPLETED (43), via protocol messages</td></tr>
+<tr><td class="mono">MODIFY_WORKFLOW_PROPERTIES (16)</td><td class="mono">WORKFLOW_PROPERTIES_MODIFIED (46)</td></tr>
+<tr><td class="mono">SCHEDULE_NEXUS_OPERATION (17) / REQUEST_CANCEL_NEXUS_OPERATION (18)</td><td class="mono">NEXUS_OPERATION_SCHEDULED (48) / _CANCEL_REQUESTED (54)</td></tr>
+</tbody></table>
+<p>Enum value 15 is absent from <code>CommandType</code>, a retired slot ({{API:temporal/api/enums/v1/command_type.proto#L14-L31}}).</p>
+
+<h3 id="s1-4">1.4 The workflow-task loop (specimen)</h3>
+<figure class="fig" data-cap="Workflow-task loop of the specimen run. Numbers are real event IDs; brackets group events persisted in one history_node batch." id="fig-loop">
+<svg viewBox="0 0 960 520" role="img" aria-label="Sequence diagram of the workflow task loop">
+  <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g class="sans" font-size="13" font-weight="700">
+    <rect class="box" x="20" y="10" width="130" height="30"/><text x="46" y="30">Client</text>
+    <rect class="box2" x="250" y="10" width="160" height="30"/><text x="262" y="30">Frontend+History</text>
+    <rect class="box" x="520" y="10" width="130" height="30"/><text x="548" y="30">Matching</text>
+    <rect class="box3" x="760" y="10" width="222" height="30"/><text x="786" y="30">Worker (orders)</text>
+  </g>
+  <g class="ln2"><path d="M85,40 V510"/><path d="M330,40 V510"/><path d="M585,40 V510"/><path d="M845,40 V510"/></g>
+  <g font-size="10.5" style="color:var(--ink)">
+    <path class="ln" d="M85,62 H328" marker-end="url(#ar2)"/><text x="92" y="57">StartWorkflowExecution (150 B)</text>
+    <rect class="box4" x="336" y="66" width="222" height="30"/><text x="342" y="79">[1 WF_STARTED, 2 WFT_SCHED]</text><text x="342" y="91" class="muted">node 1 · 259 B</text>
+    <path class="ln" d="M330,104 H583" marker-end="url(#ar2)"/><text x="350" y="118" class="muted">AddWorkflowTask (transfer task)</text>
+    <path class="lna" style="color:var(--accent)" d="M843,136 H587" marker-end="url(#ar2)"/><text x="640" y="131" class="acc">PollWorkflowTaskQueue (long-poll)</text>
+    <path class="ln" d="M585,150 H332" marker-end="url(#ar2)"/><text x="400" y="146">RecordWorkflowTaskStarted</text>
+    <rect class="box4" x="336" y="154" width="222" height="22"/><text x="342" y="169">[3 WFT_STARTED] node 3</text>
+    <path class="lna" style="color:var(--accent)" d="M587,184 H843" marker-end="url(#ar2)"/><text x="600" y="179" class="acc" font-size="10">task_token + history 1..3 (610 B)</text>
+    <path class="lna" style="color:var(--accent)" d="M843,212 H332" marker-end="url(#ar2)"/><text x="480" y="207" class="acc">RespondWorkflowTaskCompleted [ScheduleActivityTask]</text>
+    <rect class="box4" x="336" y="216" width="222" height="30"/><text x="342" y="229">[4 WFT_COMPL, 5 ACT_SCHED]</text><text x="342" y="241" class="muted">node 4 · 223 B</text>
+    <path class="lna" style="color:var(--accent)" d="M843,262 H587" marker-end="url(#ar2)"/><text x="640" y="258" class="acc">PollActivityTaskQueue</text>
+    <path class="lna" style="color:var(--accent)" d="M587,280 H843" marker-end="url(#ar2)"/><text x="630" y="294" class="acc">activity task: Charge(42)</text>
+    <text x="342" y="286" class="muted">6 ACT_STARTED held in</text><text x="342" y="298" class="muted">mutable state (transient)</text>
+    <path class="lna" style="color:var(--accent)" d="M843,318 H332" marker-end="url(#ar2)"/><text x="520" y="313" class="acc">RespondActivityTaskCompleted "ok:42"</text>
+    <rect class="box4" x="336" y="322" width="222" height="30"/><text x="342" y="335">[6 ACT_STARTED, 7 ACT_COMPL,</text><text x="342" y="347">  8 WFT_SCHED] node 6 · 280 B</text>
+    <text x="600" y="368" class="muted">sticky queue vm:bd9b0888-… → 9 WFT_STARTED</text>
+    <path class="lna" style="color:var(--accent)" d="M843,392 H332" marker-end="url(#ar2)"/><text x="600" y="405" class="acc">RespondWFTCompleted [StartTimer 1s]</text>
+    <rect class="box4" x="336" y="396" width="222" height="22"/><text x="342" y="411">[10 WFT_COMPL, 11 TIMER_STARTED]</text>
+    <text x="342" y="436" class="muted">timer_tasks fires at +1 s →</text>
+    <rect class="box4" x="336" y="442" width="222" height="22"/><text x="342" y="457">[12 TIMER_FIRED, 13 WFT_SCHED]</text>
+    <path class="lna" style="color:var(--accent)" d="M843,478 H332" marker-end="url(#ar2)"/><text x="520" y="474" class="acc">14 started → [CompleteWorkflowExecution]</text>
+    <rect class="box3" x="336" y="482" width="222" height="22"/><text x="342" y="497">[15 WFT_COMPL, 16 WF_COMPLETED]</text>
+  </g>
+</svg>
+<figcaption>Workflow-task loop of the specimen run. Numbers are real event IDs. Each green box is one <code>history_node</code> batch, which is one transaction. Event 6 (ActivityTaskStarted) is not persisted at start time. It is written together with the completion, because the activity might still be retried ({{T:service/history/workflow/mutable_state_impl.go#L4525-L4528}}).</figcaption>
+</figure>
+
+<h3 id="s1-5">1.5 Specimen timeline</h3>
+<p>All 16 events of the specimen appear below, with offsets from event 1, task IDs, encoded sizes and the <code>history_node</code> batch that holds each one. The batch sizes add up to exactly <b>1541 B</b>, the value the server stores as <code>execution_stats.history_size</code> and reports as <code>HistorySizeBytes</code> in DescribeWorkflowExecution.</p>
+<figure class="fig" data-cap="Specimen history: 16 events in 9 batches (generated from the captured bytes)." id="fig-timeline">
+<!--TIMELINE-->
+<figcaption>Specimen history: 16 events in 9 batches, generated from the captured bytes. <b>attr #</b> is the field number of the populated <code>attributes</code> oneof arm of <code>HistoryEvent</code>. Task IDs are allocated monotonically inside range 1 (base 2<sup>20</sup>). Gaps such as 2→3 (1048577→1048582) are IDs consumed by transfer, visibility and timer tasks created in the same transactions.</figcaption>
+</figure>
+<div class="note"><b>Observe</b> A first-attempt WFT costs three events: SCHEDULED, STARTED and COMPLETED. STARTED is always a batch of its own (nodes 3, 9, 14) because <code>RecordWorkflowTaskStarted</code> runs when Matching dispatches the task, in a transaction separate from the worker's reply. A <i>retried</i> WFT (attempt &gt; 1) is <b>transient</b>. Its SCHEDULED and STARTED events are not persisted. They reach the worker as a history suffix (<code>TransientWorkflowTaskInfo.history_suffix</code>, {{T:proto/internal/temporal/server/api/history/v1/message.proto#L10-L16}}), so a crash-looping workflow does not grow its history.</div>
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{API:temporal/api/history/v1/message.proto#L1188-L1220}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L1284-L1286}}</li>
+<li>{{API:temporal/api/command/v1/message.proto#L289-L290}}</li>
+<li>{{API:temporal/api/enums/v1/command_type.proto#L14-L31}}</li>
+<li>{{API:temporal/api/enums/v1/event_type.proto#L15-L177}}</li>
+<li>{{T:common/primitives/uuid.go#L69-L77}}</li>
+<li>{{T:service/history/workflow/mutable_state_impl.go#L4525-L4528}}</li>
+<li>{{T:service/history/workflow/mutable_state_impl.go#L2414}}</li>
+<li>{{T:proto/internal/temporal/server/api/history/v1/message.proto#L10-L16}}</li>
+<li>{{T:proto/internal/temporal/server/api/persistence/v1/executions.proto#L385-L404}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L522-L524}}</li>
+<li>{{T:schema/sqlite/v3/temporal/schema.sql#L46-L61}}</li>
+</ul></div>
+</section>

@@ -1,0 +1,52 @@
+
+<footer class="colophon">Temporal Engineering Manual · Rev. 2026.09 · server 1.33.0 @d8f9c6d8 · api @1c27468c · sdk-go 1.49.0 @626130f1<br>
+Specimen bytes captured from a locally built server. Every hex dump is decoded by descriptor-driven tooling, not transcribed by hand. Temporal is a trademark of its owners; this is an independent reference.</footer>
+</div></main>
+</div>
+<script>
+(function(){
+  // theme toggle (per-viewer convenience only)
+  var root=document.documentElement, KEY='tm-theme';
+  try{var t=localStorage.getItem(KEY); if(t) root.setAttribute('data-theme',t);}catch(e){}
+  var tb=document.getElementById('themeBtn');
+  if(tb) tb.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    if(!cur){cur=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+    var nx=cur==='dark'?'light':'dark'; root.setAttribute('data-theme',nx);
+    try{localStorage.setItem(KEY,nx);}catch(e){}
+  });
+  var tp=document.getElementById('topBtn'); if(tp) tp.addEventListener('click',function(){window.scrollTo(0,0);});
+
+  // hex dump <-> field table linking
+  function light(uid,key,on){
+    document.querySelectorAll('[data-l="'+key+'"]').forEach(function(el){el.classList.toggle('lit',on);});
+    var st=document.getElementById('st-'+uid);
+    if(st&&on){
+      var row=document.querySelector('tr[data-l="'+key+'"]');
+      if(row){var c=row.children; st.textContent=c[0].textContent+'  '+c[1].textContent.replace(/■/,'').trim()+'  #'+c[2].textContent+' '+c[3].textContent+'  '+c[4].textContent+'  = '+c[5].textContent;}
+      else{st.textContent='';}
+    }
+  }
+  document.querySelectorAll('figure.dump').forEach(function(fig){
+    var uid=fig.querySelector('.hx').getAttribute('data-uid'), cur=null;
+    fig.addEventListener('mouseover',function(ev){
+      var el=ev.target.closest('[data-l]'); if(!el||!fig.contains(el)) return;
+      var k=el.getAttribute('data-l'); if(k===cur) return;
+      if(cur) light(uid,cur,false); cur=k; light(uid,k,true);
+    });
+    fig.addEventListener('mouseleave',function(){ if(cur) light(uid,cur,false); cur=null; });
+  });
+
+  // side TOC: filter + scrollspy
+  var links=[].slice.call(document.querySelectorAll('#sideLinks a'));
+  var f=document.getElementById('tocFilter');
+  if(f) f.addEventListener('input',function(){var q=f.value.toLowerCase();links.forEach(function(a){a.style.display=!q||a.textContent.toLowerCase().indexOf(q)>=0?'':'none';});});
+  var heads=links.map(function(a){return document.getElementById(a.getAttribute('href').slice(1));}).filter(Boolean);
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});var on=document.querySelector('#sideLinks a.on'); if(on&&on.scrollIntoView){var s=on.parentNode.parentNode; if(on.offsetTop<s.scrollTop||on.offsetTop>s.scrollTop+s.clientHeight-40) s.scrollTop=on.offsetTop-120;}}});},{rootMargin:'0px 0px -75% 0px'});
+    heads.forEach(function(h){io.observe(h);});
+  }
+})();
+</script>
+</body>
+</html>

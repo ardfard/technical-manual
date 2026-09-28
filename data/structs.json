@@ -1,0 +1,1915 @@
+{
+ "enums": [
+  {
+   "name": "temporal.api.enums.v1.CommandType",
+   "file": "temporal/api/enums/v1/command_type.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "COMMAND_TYPE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK"
+    },
+    {
+     "n": 2,
+     "name": "COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK"
+    },
+    {
+     "n": 3,
+     "name": "COMMAND_TYPE_START_TIMER"
+    },
+    {
+     "n": 4,
+     "name": "COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 5,
+     "name": "COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 6,
+     "name": "COMMAND_TYPE_CANCEL_TIMER"
+    },
+    {
+     "n": 7,
+     "name": "COMMAND_TYPE_CANCEL_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 8,
+     "name": "COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 9,
+     "name": "COMMAND_TYPE_RECORD_MARKER"
+    },
+    {
+     "n": 10,
+     "name": "COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 11,
+     "name": "COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 12,
+     "name": "COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION"
+    },
+    {
+     "n": 13,
+     "name": "COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES"
+    },
+    {
+     "n": 14,
+     "name": "COMMAND_TYPE_PROTOCOL_MESSAGE"
+    },
+    {
+     "n": 16,
+     "name": "COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES"
+    },
+    {
+     "n": 17,
+     "name": "COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION"
+    },
+    {
+     "n": 18,
+     "name": "COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.WorkflowExecutionStatus",
+   "file": "temporal/api/enums/v1/workflow.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "WORKFLOW_EXECUTION_STATUS_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "WORKFLOW_EXECUTION_STATUS_RUNNING"
+    },
+    {
+     "n": 2,
+     "name": "WORKFLOW_EXECUTION_STATUS_COMPLETED"
+    },
+    {
+     "n": 3,
+     "name": "WORKFLOW_EXECUTION_STATUS_FAILED"
+    },
+    {
+     "n": 4,
+     "name": "WORKFLOW_EXECUTION_STATUS_CANCELED"
+    },
+    {
+     "n": 5,
+     "name": "WORKFLOW_EXECUTION_STATUS_TERMINATED"
+    },
+    {
+     "n": 6,
+     "name": "WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW"
+    },
+    {
+     "n": 7,
+     "name": "WORKFLOW_EXECUTION_STATUS_TIMED_OUT"
+    },
+    {
+     "n": 8,
+     "name": "WORKFLOW_EXECUTION_STATUS_PAUSED"
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.enums.v1.WorkflowExecutionState",
+   "file": "temporal/server/api/enums/v1/workflow.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "WORKFLOW_EXECUTION_STATE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "WORKFLOW_EXECUTION_STATE_CREATED"
+    },
+    {
+     "n": 2,
+     "name": "WORKFLOW_EXECUTION_STATE_RUNNING"
+    },
+    {
+     "n": 3,
+     "name": "WORKFLOW_EXECUTION_STATE_COMPLETED"
+    },
+    {
+     "n": 4,
+     "name": "WORKFLOW_EXECUTION_STATE_ZOMBIE"
+    },
+    {
+     "n": 5,
+     "name": "WORKFLOW_EXECUTION_STATE_VOID"
+    },
+    {
+     "n": 6,
+     "name": "WORKFLOW_EXECUTION_STATE_CORRUPTED"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.TaskQueueKind",
+   "file": "temporal/api/enums/v1/task_queue.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "TASK_QUEUE_KIND_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "TASK_QUEUE_KIND_NORMAL"
+    },
+    {
+     "n": 2,
+     "name": "TASK_QUEUE_KIND_STICKY"
+    },
+    {
+     "n": 3,
+     "name": "TASK_QUEUE_KIND_WORKER_COMMANDS"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.TaskQueueType",
+   "file": "temporal/api/enums/v1/task_queue.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "TASK_QUEUE_TYPE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "TASK_QUEUE_TYPE_WORKFLOW"
+    },
+    {
+     "n": 2,
+     "name": "TASK_QUEUE_TYPE_ACTIVITY"
+    },
+    {
+     "n": 3,
+     "name": "TASK_QUEUE_TYPE_NEXUS"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.EncodingType",
+   "file": "temporal/api/enums/v1/common.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "ENCODING_TYPE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "ENCODING_TYPE_PROTO3"
+    },
+    {
+     "n": 2,
+     "name": "ENCODING_TYPE_JSON"
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.enums.v1.TaskType",
+   "file": "temporal/server/api/enums/v1/task.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "TASK_TYPE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "TASK_TYPE_REPLICATION_HISTORY"
+    },
+    {
+     "n": 2,
+     "name": "TASK_TYPE_REPLICATION_SYNC_ACTIVITY"
+    },
+    {
+     "n": 3,
+     "name": "TASK_TYPE_TRANSFER_WORKFLOW_TASK"
+    },
+    {
+     "n": 4,
+     "name": "TASK_TYPE_TRANSFER_ACTIVITY_TASK"
+    },
+    {
+     "n": 5,
+     "name": "TASK_TYPE_TRANSFER_CLOSE_EXECUTION"
+    },
+    {
+     "n": 6,
+     "name": "TASK_TYPE_TRANSFER_CANCEL_EXECUTION"
+    },
+    {
+     "n": 7,
+     "name": "TASK_TYPE_TRANSFER_START_CHILD_EXECUTION"
+    },
+    {
+     "n": 8,
+     "name": "TASK_TYPE_TRANSFER_SIGNAL_EXECUTION"
+    },
+    {
+     "n": 10,
+     "name": "TASK_TYPE_TRANSFER_RESET_WORKFLOW"
+    },
+    {
+     "n": 12,
+     "name": "TASK_TYPE_WORKFLOW_TASK_TIMEOUT"
+    },
+    {
+     "n": 13,
+     "name": "TASK_TYPE_ACTIVITY_TIMEOUT"
+    },
+    {
+     "n": 14,
+     "name": "TASK_TYPE_USER_TIMER"
+    },
+    {
+     "n": 15,
+     "name": "TASK_TYPE_WORKFLOW_RUN_TIMEOUT"
+    },
+    {
+     "n": 16,
+     "name": "TASK_TYPE_DELETE_HISTORY_EVENT"
+    },
+    {
+     "n": 17,
+     "name": "TASK_TYPE_ACTIVITY_RETRY_TIMER"
+    },
+    {
+     "n": 18,
+     "name": "TASK_TYPE_WORKFLOW_BACKOFF_TIMER"
+    },
+    {
+     "n": 19,
+     "name": "TASK_TYPE_VISIBILITY_START_EXECUTION"
+    },
+    {
+     "n": 20,
+     "name": "TASK_TYPE_VISIBILITY_UPSERT_EXECUTION"
+    },
+    {
+     "n": 21,
+     "name": "TASK_TYPE_VISIBILITY_CLOSE_EXECUTION"
+    },
+    {
+     "n": 22,
+     "name": "TASK_TYPE_VISIBILITY_DELETE_EXECUTION"
+    },
+    {
+     "n": 24,
+     "name": "TASK_TYPE_TRANSFER_DELETE_EXECUTION"
+    },
+    {
+     "n": 25,
+     "name": "TASK_TYPE_REPLICATION_SYNC_WORKFLOW_STATE"
+    },
+    {
+     "n": 26,
+     "name": "TASK_TYPE_ARCHIVAL_ARCHIVE_EXECUTION"
+    },
+    {
+     "n": 27,
+     "name": "TASK_TYPE_STATE_MACHINE_OUTBOUND"
+    },
+    {
+     "n": 28,
+     "name": "TASK_TYPE_STATE_MACHINE_TIMER"
+    },
+    {
+     "n": 29,
+     "name": "TASK_TYPE_WORKFLOW_EXECUTION_TIMEOUT"
+    },
+    {
+     "n": 30,
+     "name": "TASK_TYPE_REPLICATION_SYNC_HSM"
+    },
+    {
+     "n": 31,
+     "name": "TASK_TYPE_REPLICATION_SYNC_VERSIONED_TRANSITION"
+    },
+    {
+     "n": 32,
+     "name": "TASK_TYPE_CHASM_PURE"
+    },
+    {
+     "n": 33,
+     "name": "TASK_TYPE_CHASM"
+    },
+    {
+     "n": 34,
+     "name": "TASK_TYPE_REPLICATION_DELETE_EXECUTION"
+    },
+    {
+     "n": 35,
+     "name": "TASK_TYPE_WORKER_COMMANDS"
+    },
+    {
+     "n": 36,
+     "name": "TASK_TYPE_TIMESKIPPING_TIMER"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.WorkflowIdReusePolicy",
+   "file": "temporal/api/enums/v1/workflow.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE"
+    },
+    {
+     "n": 2,
+     "name": "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY"
+    },
+    {
+     "n": 3,
+     "name": "WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE"
+    },
+    {
+     "n": 4,
+     "name": "WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.WorkflowIdConflictPolicy",
+   "file": "temporal/api/enums/v1/workflow.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "WORKFLOW_ID_CONFLICT_POLICY_FAIL"
+    },
+    {
+     "n": 2,
+     "name": "WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING"
+    },
+    {
+     "n": 3,
+     "name": "WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.HistoryEventFilterType",
+   "file": "temporal/api/enums/v1/workflow.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "HISTORY_EVENT_FILTER_TYPE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "HISTORY_EVENT_FILTER_TYPE_ALL_EVENT"
+    },
+    {
+     "n": 2,
+     "name": "HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.enums.v1.WorkflowTaskFailedCause",
+   "file": "temporal/api/enums/v1/failed_cause.proto",
+   "values": [
+    {
+     "n": 0,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_UNSPECIFIED"
+    },
+    {
+     "n": 1,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_UNHANDLED_COMMAND"
+    },
+    {
+     "n": 2,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_SCHEDULE_ACTIVITY_ATTRIBUTES"
+    },
+    {
+     "n": 3,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_REQUEST_CANCEL_ACTIVITY_ATTRIBUTES"
+    },
+    {
+     "n": 4,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_START_TIMER_ATTRIBUTES"
+    },
+    {
+     "n": 5,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_CANCEL_TIMER_ATTRIBUTES"
+    },
+    {
+     "n": 6,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_RECORD_MARKER_ATTRIBUTES"
+    },
+    {
+     "n": 7,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_COMPLETE_WORKFLOW_EXECUTION_ATTRIBUTES"
+    },
+    {
+     "n": 8,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_FAIL_WORKFLOW_EXECUTION_ATTRIBUTES"
+    },
+    {
+     "n": 9,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_CANCEL_WORKFLOW_EXECUTION_ATTRIBUTES"
+    },
+    {
+     "n": 10,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_ATTRIBUTES"
+    },
+    {
+     "n": 11,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_CONTINUE_AS_NEW_ATTRIBUTES"
+    },
+    {
+     "n": 12,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_START_TIMER_DUPLICATE_ID"
+    },
+    {
+     "n": 13,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_RESET_STICKY_TASK_QUEUE"
+    },
+    {
+     "n": 14,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_WORKER_UNHANDLED_FAILURE"
+    },
+    {
+     "n": 15,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_SIGNAL_WORKFLOW_EXECUTION_ATTRIBUTES"
+    },
+    {
+     "n": 16,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_START_CHILD_EXECUTION_ATTRIBUTES"
+    },
+    {
+     "n": 17,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_FORCE_CLOSE_COMMAND"
+    },
+    {
+     "n": 18,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_FAILOVER_CLOSE_COMMAND"
+    },
+    {
+     "n": 19,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_SIGNAL_INPUT_SIZE"
+    },
+    {
+     "n": 20,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_RESET_WORKFLOW"
+    },
+    {
+     "n": 21,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_BINARY"
+    },
+    {
+     "n": 22,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_SCHEDULE_ACTIVITY_DUPLICATE_ID"
+    },
+    {
+     "n": 23,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_SEARCH_ATTRIBUTES"
+    },
+    {
+     "n": 24,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_NON_DETERMINISTIC_ERROR"
+    },
+    {
+     "n": 25,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_MODIFY_WORKFLOW_PROPERTIES_ATTRIBUTES"
+    },
+    {
+     "n": 26,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_PENDING_CHILD_WORKFLOWS_LIMIT_EXCEEDED"
+    },
+    {
+     "n": 27,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_PENDING_ACTIVITIES_LIMIT_EXCEEDED"
+    },
+    {
+     "n": 28,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_PENDING_SIGNALS_LIMIT_EXCEEDED"
+    },
+    {
+     "n": 29,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_PENDING_REQUEST_CANCEL_LIMIT_EXCEEDED"
+    },
+    {
+     "n": 30,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_UPDATE_WORKFLOW_EXECUTION_MESSAGE"
+    },
+    {
+     "n": 31,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_UNHANDLED_UPDATE"
+    },
+    {
+     "n": 32,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_SCHEDULE_NEXUS_OPERATION_ATTRIBUTES"
+    },
+    {
+     "n": 33,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_PENDING_NEXUS_OPERATIONS_LIMIT_EXCEEDED"
+    },
+    {
+     "n": 34,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_BAD_REQUEST_CANCEL_NEXUS_OPERATION_ATTRIBUTES"
+    },
+    {
+     "n": 35,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_FEATURE_DISABLED"
+    },
+    {
+     "n": 36,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_GRPC_MESSAGE_TOO_LARGE"
+    },
+    {
+     "n": 37,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_PAYLOADS_TOO_LARGE"
+    },
+    {
+     "n": 38,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_EXTERNAL_STORAGE_FAILURE"
+    },
+    {
+     "n": 39,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_PAUSE_REQUESTED_BEFORE_TASK_STARTED"
+    },
+    {
+     "n": 40,
+     "name": "WORKFLOW_TASK_FAILED_CAUSE_REQUEST_TOO_LARGE"
+    }
+   ]
+  }
+ ],
+ "messages": [
+  {
+   "name": "temporal.api.common.v1.Payload",
+   "file": "temporal/api/common/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "metadata",
+     "type": "map\u003cstring,bytes\u003e",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "data",
+     "type": "bytes",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "external_payloads",
+     "type": "temporal.api.common.v1.Payload.ExternalPayloadDetails",
+     "label": "repeated"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.common.v1.Payloads",
+   "file": "temporal/api/common/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "payloads",
+     "type": "temporal.api.common.v1.Payload",
+     "label": "repeated"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.common.v1.DataBlob",
+   "file": "temporal/api/common/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "encoding_type",
+     "type": "temporal.api.enums.v1.EncodingType",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "data",
+     "type": "bytes",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.common.v1.WorkflowExecution",
+   "file": "temporal/api/common/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "workflow_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "run_id",
+     "type": "string",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.common.v1.RetryPolicy",
+   "file": "temporal/api/common/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "initial_interval",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "backoff_coefficient",
+     "type": "double",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "maximum_interval",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "maximum_attempts",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "non_retryable_error_types",
+     "type": "string",
+     "label": "repeated"
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.taskqueue.v1.TaskQueue",
+   "file": "temporal/api/taskqueue/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "name",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "kind",
+     "type": "temporal.api.enums.v1.TaskQueueKind",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "normal_name",
+     "type": "string",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.sdk.v1.UserMetadata",
+   "file": "temporal/api/sdk/v1/user_metadata.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "summary",
+     "type": "temporal.api.common.v1.Payload",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "details",
+     "type": "temporal.api.common.v1.Payload",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.history.v1.WorkflowExecutionStartedEventAttributes",
+   "file": "temporal/api/history/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "workflow_type",
+     "type": "temporal.api.common.v1.WorkflowType",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "parent_workflow_namespace",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 27,
+     "name": "parent_workflow_namespace_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "parent_workflow_execution",
+     "type": "temporal.api.common.v1.WorkflowExecution",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "parent_initiated_event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "task_queue",
+     "type": "temporal.api.taskqueue.v1.TaskQueue",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "input",
+     "type": "temporal.api.common.v1.Payloads",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "workflow_execution_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 8,
+     "name": "workflow_run_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 9,
+     "name": "workflow_task_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 10,
+     "name": "continued_execution_run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 11,
+     "name": "initiator",
+     "type": "temporal.api.enums.v1.ContinueAsNewInitiator",
+     "label": ""
+    },
+    {
+     "n": 12,
+     "name": "continued_failure",
+     "type": "temporal.api.failure.v1.Failure",
+     "label": ""
+    },
+    {
+     "n": 13,
+     "name": "last_completion_result",
+     "type": "temporal.api.common.v1.Payloads",
+     "label": ""
+    },
+    {
+     "n": 14,
+     "name": "original_execution_run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 15,
+     "name": "identity",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 16,
+     "name": "first_execution_run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 17,
+     "name": "retry_policy",
+     "type": "temporal.api.common.v1.RetryPolicy",
+     "label": ""
+    },
+    {
+     "n": 18,
+     "name": "attempt",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 19,
+     "name": "workflow_execution_expiration_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 20,
+     "name": "cron_schedule",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 21,
+     "name": "first_workflow_task_backoff",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 22,
+     "name": "memo",
+     "type": "temporal.api.common.v1.Memo",
+     "label": ""
+    },
+    {
+     "n": 23,
+     "name": "search_attributes",
+     "type": "temporal.api.common.v1.SearchAttributes",
+     "label": ""
+    },
+    {
+     "n": 24,
+     "name": "prev_auto_reset_points",
+     "type": "temporal.api.workflow.v1.ResetPoints",
+     "label": ""
+    },
+    {
+     "n": 25,
+     "name": "header",
+     "type": "temporal.api.common.v1.Header",
+     "label": ""
+    },
+    {
+     "n": 26,
+     "name": "parent_initiated_event_version",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 28,
+     "name": "workflow_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 29,
+     "name": "source_version_stamp",
+     "type": "temporal.api.common.v1.WorkerVersionStamp",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 30,
+     "name": "completion_callbacks",
+     "type": "temporal.api.common.v1.Callback",
+     "label": "repeated"
+    },
+    {
+     "n": 31,
+     "name": "root_workflow_execution",
+     "type": "temporal.api.common.v1.WorkflowExecution",
+     "label": ""
+    },
+    {
+     "n": 32,
+     "name": "inherited_build_id",
+     "type": "string",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 33,
+     "name": "versioning_override",
+     "type": "temporal.api.workflow.v1.VersioningOverride",
+     "label": ""
+    },
+    {
+     "n": 34,
+     "name": "parent_pinned_worker_deployment_version",
+     "type": "string",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 35,
+     "name": "priority",
+     "type": "temporal.api.common.v1.Priority",
+     "label": ""
+    },
+    {
+     "n": 37,
+     "name": "inherited_pinned_version",
+     "type": "temporal.api.deployment.v1.WorkerDeploymentVersion",
+     "label": ""
+    },
+    {
+     "n": 39,
+     "name": "inherited_auto_upgrade_info",
+     "type": "temporal.api.deployment.v1.InheritedAutoUpgradeInfo",
+     "label": ""
+    },
+    {
+     "n": 38,
+     "name": "eager_execution_accepted",
+     "type": "bool",
+     "label": ""
+    },
+    {
+     "n": 40,
+     "name": "declined_target_version_upgrade",
+     "type": "temporal.api.history.v1.DeclinedTargetVersionUpgrade",
+     "label": ""
+    },
+    {
+     "n": 41,
+     "name": "time_skipping_config",
+     "type": "temporal.api.common.v1.TimeSkippingConfig",
+     "label": ""
+    },
+    {
+     "n": 43,
+     "name": "time_skipping_state_propagation",
+     "type": "temporal.api.common.v1.TimeSkippingStatePropagation",
+     "label": ""
+    }
+   ],
+   "reserved": [
+    [
+     36,
+     36
+    ],
+    [
+     42,
+     42
+    ]
+   ]
+  },
+  {
+   "name": "temporal.api.history.v1.ActivityTaskScheduledEventAttributes",
+   "file": "temporal/api/history/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "activity_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "activity_type",
+     "type": "temporal.api.common.v1.ActivityType",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "task_queue",
+     "type": "temporal.api.taskqueue.v1.TaskQueue",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "header",
+     "type": "temporal.api.common.v1.Header",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "input",
+     "type": "temporal.api.common.v1.Payloads",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "schedule_to_close_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 8,
+     "name": "schedule_to_start_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 9,
+     "name": "start_to_close_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 10,
+     "name": "heartbeat_timeout",
+     "type": "google.protobuf.Duration",
+     "label": ""
+    },
+    {
+     "n": 11,
+     "name": "workflow_task_completed_event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 12,
+     "name": "retry_policy",
+     "type": "temporal.api.common.v1.RetryPolicy",
+     "label": ""
+    },
+    {
+     "n": 13,
+     "name": "use_workflow_build_id",
+     "type": "bool",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 14,
+     "name": "priority",
+     "type": "temporal.api.common.v1.Priority",
+     "label": ""
+    }
+   ],
+   "reserved": [
+    [
+     3,
+     3
+    ]
+   ]
+  },
+  {
+   "name": "temporal.api.history.v1.WorkflowTaskCompletedEventAttributes",
+   "file": "temporal/api/history/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "scheduled_event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "started_event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "identity",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "binary_checksum",
+     "type": "string",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 5,
+     "name": "worker_version",
+     "type": "temporal.api.common.v1.WorkerVersionStamp",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 6,
+     "name": "sdk_metadata",
+     "type": "temporal.api.sdk.v1.WorkflowTaskCompletedMetadata",
+     "label": ""
+    },
+    {
+     "n": 13,
+     "name": "metering_metadata",
+     "type": "temporal.api.common.v1.MeteringMetadata",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "deployment",
+     "type": "temporal.api.deployment.v1.Deployment",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 8,
+     "name": "versioning_behavior",
+     "type": "temporal.api.enums.v1.VersioningBehavior",
+     "label": ""
+    },
+    {
+     "n": 9,
+     "name": "worker_deployment_version",
+     "type": "string",
+     "label": "",
+     "deprecated": true
+    },
+    {
+     "n": 10,
+     "name": "worker_deployment_name",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 11,
+     "name": "deployment_version",
+     "type": "temporal.api.deployment.v1.WorkerDeploymentVersion",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.api.command.v1.Command",
+   "file": "temporal/api/command/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "command_type",
+     "type": "temporal.api.enums.v1.CommandType",
+     "label": ""
+    },
+    {
+     "n": 301,
+     "name": "user_metadata",
+     "type": "temporal.api.sdk.v1.UserMetadata",
+     "label": ""
+    },
+    {
+     "n": 302,
+     "name": "event_group_markers",
+     "type": "temporal.api.sdk.v1.EventGroupMarker",
+     "label": "repeated"
+    },
+    {
+     "n": 2,
+     "name": "schedule_activity_task_command_attributes",
+     "type": "temporal.api.command.v1.ScheduleActivityTaskCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 3,
+     "name": "start_timer_command_attributes",
+     "type": "temporal.api.command.v1.StartTimerCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 4,
+     "name": "complete_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.CompleteWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 5,
+     "name": "fail_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.FailWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 6,
+     "name": "request_cancel_activity_task_command_attributes",
+     "type": "temporal.api.command.v1.RequestCancelActivityTaskCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 7,
+     "name": "cancel_timer_command_attributes",
+     "type": "temporal.api.command.v1.CancelTimerCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 8,
+     "name": "cancel_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.CancelWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 9,
+     "name": "request_cancel_external_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.RequestCancelExternalWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 10,
+     "name": "record_marker_command_attributes",
+     "type": "temporal.api.command.v1.RecordMarkerCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 11,
+     "name": "continue_as_new_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.ContinueAsNewWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 12,
+     "name": "start_child_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.StartChildWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 13,
+     "name": "signal_external_workflow_execution_command_attributes",
+     "type": "temporal.api.command.v1.SignalExternalWorkflowExecutionCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 14,
+     "name": "upsert_workflow_search_attributes_command_attributes",
+     "type": "temporal.api.command.v1.UpsertWorkflowSearchAttributesCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 15,
+     "name": "protocol_message_command_attributes",
+     "type": "temporal.api.command.v1.ProtocolMessageCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 17,
+     "name": "modify_workflow_properties_command_attributes",
+     "type": "temporal.api.command.v1.ModifyWorkflowPropertiesCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 18,
+     "name": "schedule_nexus_operation_command_attributes",
+     "type": "temporal.api.command.v1.ScheduleNexusOperationCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    },
+    {
+     "n": 19,
+     "name": "request_cancel_nexus_operation_command_attributes",
+     "type": "temporal.api.command.v1.RequestCancelNexusOperationCommandAttributes",
+     "label": "",
+     "oneof": "attributes"
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.ShardInfo",
+   "file": "temporal/server/api/persistence/v1/executions.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "shard_id",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "range_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "owner",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "stolen_since_renew",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "update_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 13,
+     "name": "replication_dlq_ack_level",
+     "type": "map\u003cstring,int64\u003e",
+     "label": ""
+    },
+    {
+     "n": 17,
+     "name": "queue_states",
+     "type": "map\u003cint32,temporal.server.api.persistence.v1.QueueState\u003e",
+     "label": ""
+    }
+   ],
+   "reserved": [
+    [
+     4,
+     4
+    ],
+    [
+     5,
+     5
+    ],
+    [
+     8,
+     8
+    ],
+    [
+     9,
+     9
+    ],
+    [
+     10,
+     10
+    ],
+    [
+     11,
+     11
+    ],
+    [
+     12,
+     12
+    ],
+    [
+     14,
+     14
+    ],
+    [
+     15,
+     15
+    ],
+    [
+     16,
+     16
+    ]
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.WorkflowExecutionState",
+   "file": "temporal/server/api/persistence/v1/executions.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "create_request_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "state",
+     "type": "temporal.server.api.enums.v1.WorkflowExecutionState",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "status",
+     "type": "temporal.api.enums.v1.WorkflowExecutionStatus",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "last_update_versioned_transition",
+     "type": "temporal.server.api.persistence.v1.VersionedTransition",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "start_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "request_ids",
+     "type": "map\u003cstring,temporal.server.api.persistence.v1.RequestIDInfo\u003e",
+     "label": ""
+    },
+    {
+     "n": 8,
+     "name": "first_execution_run_id",
+     "type": "string",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.HistoryTreeInfo",
+   "file": "temporal/server/api/persistence/v1/history_tree.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "branch_info",
+     "type": "temporal.server.api.persistence.v1.HistoryBranch",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "fork_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "info",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "branch_token",
+     "type": "bytes",
+     "label": "",
+     "deprecated": true
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.HistoryBranch",
+   "file": "temporal/server/api/persistence/v1/history_tree.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "tree_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "branch_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "ancestors",
+     "type": "temporal.server.api.persistence.v1.HistoryBranchRange",
+     "label": "repeated"
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.HistoryBranchRange",
+   "file": "temporal/server/api/persistence/v1/history_tree.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "branch_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "begin_node_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "end_node_id",
+     "type": "int64",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.TaskQueueInfo",
+   "file": "temporal/server/api/persistence/v1/tasks.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "namespace_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "name",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "task_type",
+     "type": "temporal.api.enums.v1.TaskQueueType",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "kind",
+     "type": "temporal.api.enums.v1.TaskQueueKind",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "ack_level",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "expiry_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "last_update_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 8,
+     "name": "approximate_backlog_count",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 9,
+     "name": "subqueues",
+     "type": "temporal.server.api.persistence.v1.SubqueueInfo",
+     "label": "repeated"
+    },
+    {
+     "n": 10,
+     "name": "other_has_tasks",
+     "type": "bool",
+     "label": ""
+    },
+    {
+     "n": 11,
+     "name": "partition_scale_state",
+     "type": "temporal.server.api.persistence.v1.PartitionScaleState",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.persistence.v1.TimerTaskInfo",
+   "file": "temporal/server/api/persistence/v1/executions.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "namespace_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "workflow_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "task_type",
+     "type": "temporal.server.api.enums.v1.TaskType",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "timeout_type",
+     "type": "temporal.api.enums.v1.TimeoutType",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "workflow_backoff_type",
+     "type": "temporal.server.api.enums.v1.WorkflowBackoffType",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "version",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 8,
+     "name": "schedule_attempt",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 9,
+     "name": "event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 10,
+     "name": "task_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 11,
+     "name": "visibility_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 12,
+     "name": "branch_token",
+     "type": "bytes",
+     "label": ""
+    },
+    {
+     "n": 13,
+     "name": "already_archived",
+     "type": "bool",
+     "label": ""
+    },
+    {
+     "n": 14,
+     "name": "mutable_state_transition_count",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 15,
+     "name": "first_run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 16,
+     "name": "stamp",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 17,
+     "name": "chasm_task_info",
+     "type": "temporal.server.api.persistence.v1.ChasmTaskInfo",
+     "label": "",
+     "oneof": "task_details"
+    },
+    {
+     "n": 18,
+     "name": "versioned_transition",
+     "type": "temporal.server.api.persistence.v1.VersionedTransition",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.history.v1.VersionHistories",
+   "file": "temporal/server/api/history/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "current_version_history_index",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "histories",
+     "type": "temporal.server.api.history.v1.VersionHistory",
+     "label": "repeated"
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.history.v1.VersionHistory",
+   "file": "temporal/server/api/history/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "branch_token",
+     "type": "bytes",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "items",
+     "type": "temporal.server.api.history.v1.VersionHistoryItem",
+     "label": "repeated"
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.history.v1.VersionHistoryItem",
+   "file": "temporal/server/api/history/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "version",
+     "type": "int64",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.token.v1.Task",
+   "file": "temporal/server/api/token/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "namespace_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "workflow_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "run_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 4,
+     "name": "scheduled_event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 5,
+     "name": "attempt",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 6,
+     "name": "activity_id",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 7,
+     "name": "workflow_type",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 8,
+     "name": "activity_type",
+     "type": "string",
+     "label": ""
+    },
+    {
+     "n": 9,
+     "name": "clock",
+     "type": "temporal.server.api.clock.v1.VectorClock",
+     "label": ""
+    },
+    {
+     "n": 10,
+     "name": "started_event_id",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 11,
+     "name": "version",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 12,
+     "name": "started_time",
+     "type": "google.protobuf.Timestamp",
+     "label": ""
+    },
+    {
+     "n": 13,
+     "name": "start_version",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 14,
+     "name": "component_ref",
+     "type": "bytes",
+     "label": ""
+    },
+    {
+     "n": 15,
+     "name": "activity_attempt_stamp",
+     "type": "int32",
+     "label": ""
+    }
+   ]
+  },
+  {
+   "name": "temporal.server.api.clock.v1.VectorClock",
+   "file": "temporal/server/api/clock/v1/message.proto",
+   "fields": [
+    {
+     "n": 1,
+     "name": "shard_id",
+     "type": "int32",
+     "label": ""
+    },
+    {
+     "n": 2,
+     "name": "clock",
+     "type": "int64",
+     "label": ""
+    },
+    {
+     "n": 3,
+     "name": "cluster_id",
+     "type": "int64",
+     "label": ""
+    }
+   ]
+  }
+ ]
+}

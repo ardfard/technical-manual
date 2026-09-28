@@ -1,0 +1,74 @@
+
+<section class="chapter" data-sheet="SHEET 08" id="ch8">
+<div class="chap-no">Chapter 8</div>
+<h2 id="s8">8 Special topics</h2>
+<p class="lede">Limits and what happens at them, run chains and forks, update protocol messages, Nexus and CHASM, and the newest event types in this API revision.</p>
+
+<h3 id="s8-1">8.1 Limits and their failure modes</h3>
+<p>All limits are dynamic config. The defaults below are from {{T:common/dynamicconfig/constants.go}}, and all are overridable per namespace. <i>Warn</i> thresholds only log and emit metrics.</p>
+<table class="ref">
+<thead><tr><th>key</th><th class="num">default</th><th>scope</th><th>on violation</th><th>line</th></tr></thead>
+<tbody>
+<tr><td class="mono">limit.blobSize.error / .warn</td><td class="num">2 MiB / 512 KiB</td><td>single payload set (input, result, details…)</td><td>command payload: <b>workflow terminated</b> with a WFT-failed cause such as <code>BAD_SCHEDULE_ACTIVITY_ATTRIBUTES</code>. Start or signal: request rejected</td><td>{{T:common/dynamicconfig/constants.go#L414-L422}}</td></tr>
+<tr><td class="mono">limit.memoSize.error</td><td class="num">2 MiB</td><td>memo</td><td>rejected</td><td>{{T:common/dynamicconfig/constants.go#L424-L427}}</td></tr>
+<tr><td class="mono">limit.historySize.error / .warn</td><td class="num">50 MiB / 10 MiB</td><td>Σ history_node bytes (<code>history_size</code>)</td><td><b>force-terminated</b></td><td>{{T:common/dynamicconfig/constants.go#L458-L466}}</td></tr>
+<tr><td class="mono">limit.historyCount.error / .warn</td><td class="num">51 200 / 10 240</td><td>event count (50·1024 / 10·1024)</td><td><b>force-terminated</b> (<code>…HistoryCountExceedsLimit</code>)</td><td>{{T:common/dynamicconfig/constants.go#L474-L482}}</td></tr>
+<tr><td class="mono">limit.history{Size,Count}.suggestContinueAsNew</td><td class="num">4 MiB / 4 096</td><td>same</td><td><code>WorkflowTaskStartedEventAttributes.suggest_continue_as_new = true</code> (#4)</td><td>{{T:common/dynamicconfig/constants.go#L468-L514}}</td></tr>
+<tr><td class="mono">limit.mutableStateSize.error</td><td class="num">8 MiB</td><td>serialized mutable state</td><td>force-terminated ({{T:service/history/workflow/context.go#L1535-L1545}})</td><td>{{T:common/dynamicconfig/constants.go#L495-L498}}</td></tr>
+<tr><td class="mono">limit.numPending{Activities,ChildExecutions,Signals,CancelRequests}.error</td><td class="num">2 000 each</td><td>concurrent pending entities</td><td>WFT failed (e.g. <code>PENDING_ACTIVITIES_LIMIT_EXCEEDED</code>) and retried</td><td>{{T:common/dynamicconfig/constants.go#L434-L456}}</td></tr>
+<tr><td class="mono">history.maximumSignalsPerExecution</td><td class="num">10 000</td><td>lifetime signals</td><td>signal rejected</td><td>{{T:common/dynamicconfig/constants.go#L2670-L2673}}</td></tr>
+<tr><td class="mono">history.maximumBufferedEventsBatch</td><td class="num">100</td><td>buffered events</td><td>in-flight WFT force-failed so the buffer can flush ({{T:service/history/workflow/mutable_state_impl.go#L8980-L9010}})</td><td>{{T:common/dynamicconfig/constants.go#L2650-L2653}}</td></tr>
+<tr><td class="mono">limit.maxIDLength</td><td class="num">1 000</td><td>namespace, task queue, workflow/activity/timer IDs…</td><td>InvalidArgument</td><td>{{T:common/dynamicconfig/constants.go#L521-L524}}</td></tr>
+<tr><td class="mono">frontend.namespaceRPS</td><td class="num">2 400</td><td>per frontend instance, per namespace</td><td>ResourceExhausted</td><td>{{T:common/dynamicconfig/constants.go#L768-L771}}</td></tr>
+<tr><td class="mono">history.defaultWorkflowTaskTimeout</td><td class="num">10 s</td><td>WFT start-to-close</td><td>WFT timed out → rescheduled (transient)</td><td>{{T:common/primitives/constants.go#L16}}</td></tr>
+<tr><td class="mono">matching.numTaskqueue{Read,Write}Partitions</td><td class="num">4</td><td>per task queue</td><td>—</td><td>{{T:common/dynamicconfig/shared_constants.go#L9}}</td></tr>
+</tbody></table>
+<p>Size checks for commands happen in the history service's WFT-completion handler ({{T:service/history/api/respondworkflowtaskcompleted/workflow_task_completed_handler.go#L515-L524}}). Oversized payloads call <code>terminateWorkflow</code> ({{T:service/history/api/respondworkflowtaskcompleted/workflow_task_completed_handler.go#L1591-L1603}}), because retrying the same deterministic code would reproduce them. Pending-count limits only fail the WFT, since the condition may clear. History-size and count enforcement is in {{T:service/history/workflow/context.go#L1471-L1525}}.</p>
+<div class="warn"><b>Headroom</b> The specimen used 1541 B and 16 events for one activity and one timer, about 96 B per event. At that density the 51 200-event cap arrives long before 50 MiB. Payload-heavy workflows hit the size cap first. Continue-as-new at the suggest thresholds.</div>
+
+<h3 id="s8-2">8.2 Run chains, resets and ID policies</h3>
+<ul>
+<li><b>Continue-as-new</b> closes the run with <code>WORKFLOW_EXECUTION_CONTINUED_AS_NEW</code> (type 28, arm #33) naming <code>new_execution_run_id</code>, and atomically creates the next run with a new tree. The shard is unchanged, since routing ignores run_id. <code>first_execution_run_id</code> is carried forward, <code>current_executions</code> flips to the new run, and each run's history and limits start from zero.</li>
+<li><b>Retry and cron</b> create chains the same way. <code>WorkflowExecutionStartedEventAttributes.attempt</code> (#18, specimen 1) and <code>first_workflow_task_backoff</code> (#21) describe the new run.</li>
+<li><b>Reset</b> forks: the new run gets a new branch whose <code>HistoryBranch.ancestors</code> reference the old tree up to the reset point, so the shared prefix is not copied. <code>auto_reset_points</code> (WorkflowExecutionInfo #51, 92 B in the specimen) records candidate reset points per build ID.</li>
+<li><b>ID policies</b> gate reuse of a workflow ID. <i>Reuse</i> covers closed runs: ALLOW_DUPLICATE 1, ALLOW_DUPLICATE_FAILED_ONLY 2, REJECT_DUPLICATE 3, TERMINATE_IF_RUNNING 4 (deprecated). <i>Conflict</i> covers a running run: FAIL 1, USE_EXISTING 2, TERMINATE_EXISTING 3 ({{API:temporal/api/enums/v1/workflow.proto#L17-L46}}). Both are evaluated against the single <code>current_executions</code> row.</li>
+</ul>
+
+<h3 id="s8-3">8.3 Updates and protocol messages</h3>
+<p>Workflow Update is carried as <code>temporal.api.protocol.v1.Message</code>s alongside commands. A <code>COMMAND_TYPE_PROTOCOL_MESSAGE</code> (14) command pins where each message falls relative to other commands, which is what SDK flag 3 enables. Only outcomes that matter for replay are persisted: ADMITTED (47 → arm #52), ACCEPTED (41 → #46) and COMPLETED (43 → #48). REJECTED (42) is never written. Updates that arrive with no other pending work may be delivered on a <b>speculative WFT</b> whose scheduled and started events are not persisted unless the WFT produces events. Its timeout runs on the in-memory timer queue (category 6). A rejected update therefore leaves no trace in history.</p>
+
+<h3 id="s8-4">8.4 Nexus, callbacks and CHASM</h3>
+<p>Nexus operations add seven event types (48–54), plus 56 and 57 for cancel-request outcomes, and dispatch through the <b>outbound</b> task category (7, <code>STATE_MACHINE_OUTBOUND</code>), a queue separate from the transfer queue. Newer server subsystems are built on <b>CHASM</b>, a component tree persisted in <code>chasm_node_maps</code> and addressed by <code>archetype_id</code>. The specimen's retention timer already carries <code>chasm_task_info.archetype_id = 2918170192</code> ([[fig:fig-timer1048618]]). At this commit a plain workflow is the root of a CHASM tree, and archetype IDs are <code>farm.Fingerprint32</code> of a fully qualified component name, <code>"&lt;library&gt;.&lt;component&gt;"</code> ({{T:chasm/registrable_component.go#L220-L222}}, {{T:chasm/library.go#L58-L60}}). The workflow archetype is <code>"workflow.workflow"</code> ({{T:chasm/workflow.go#L4-L11}}), and recomputing fp32("workflow.workflow") gives exactly 2918170192. Standalone entities keyed by a business ID use <code>current_chasm_executions</code> (§2.4).</p>
+
+<h3 id="s8-5">8.5 New in this API revision</h3>
+<table class="ref compact"><thead><tr><th>event type</th><th>arm</th><th>meaning</th></tr></thead><tbody>
+<tr><td class="mono">WORKFLOW_EXECUTION_OPTIONS_UPDATED (55)</td><td class="num">#60</td><td>versioning override or options changed by the user</td></tr>
+<tr><td class="mono">WORKFLOW_EXECUTION_PAUSED (58) / UNPAUSED (59)</td><td class="num">#63 / #64</td><td>execution pause, with status <code>PAUSED = 8</code></td></tr>
+<tr><td class="mono">WORKFLOW_EXECUTION_TIME_SKIPPING_TRANSITIONED (60)</td><td class="num">#65</td><td>time skipping advanced time or was disabled. Backed by server task <code>TASK_TYPE_TIMESKIPPING_TIMER = 36</code></td></tr>
+<tr><td class="mono">HistoryEvent.principal (#303), event_group_markers (#304)</td><td>—</td><td>who caused an event; SDK-level grouping of events</td></tr>
+<tr><td class="mono">Payload.external_payloads (#3)</td><td>—</td><td>size references for externally stored payloads (visibility SAs <code>TemporalExternalPayloadSizeBytes/Count</code>)</td></tr>
+</tbody></table>
+
+<h3 id="s8-6">8.6 Archival</h3>
+<p>With archival enabled on a namespace, closing an execution schedules <code>ARCHIVAL_ARCHIVE_EXECUTION</code> (26) in the archival category (5). History is written to the configured URI (<code>file://</code>, <code>s3://</code>, <code>gs://</code>) as blobs, paged with <code>FirstBlobPageToken = 1</code> / <code>LastBlobNextPageToken = -1</code> ({{T:common/constants.go#L25-L28}}). The specimen's retention timer carries <code>already_archived = true</code> (#13), but that says nothing about archival state. The serializer hard-codes it to <code>true</code> "even though it's no longer checked in case someone downgrades" ({{T:common/persistence/serialization/task_serializers.go#L985-L987}}). It is a compatibility shim you will find in every retention timer.</p>
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{T:common/dynamicconfig/constants.go#L414-L524}}</li>
+<li>{{T:common/dynamicconfig/constants.go#L2650-L2673}}</li>
+<li>{{T:service/history/api/respondworkflowtaskcompleted/workflow_task_completed_handler.go#L505-L524}}</li>
+<li>{{T:service/history/api/respondworkflowtaskcompleted/workflow_task_completed_handler.go#L1591-L1603}}</li>
+<li>{{T:service/history/api/respondworkflowtaskcompleted/workflow_size_checker.go#L55-L76}}</li>
+<li>{{T:service/history/workflow/context.go#L1471-L1525}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L307-L330}}</li>
+<li>{{API:temporal/api/enums/v1/event_type.proto#L133-L177}}</li>
+<li>{{API:temporal/api/enums/v1/workflow.proto#L17-L82}}</li>
+<li>{{T:proto/internal/temporal/server/api/enums/v1/task.proto#L43-L70}}</li>
+<li>{{T:service/history/queues/speculative_workflow_task_timeout_queue.go}}</li>
+<li>{{T:schema/sqlite/v3/temporal/schema.sql#L63-L79}}</li>
+<li>{{T:schema/sqlite/v3/temporal/schema.sql#L295-L308}}</li>
+<li>{{T:common/constants.go#L25-L28}}</li>
+<li>{{T:common/persistence/serialization/task_serializers.go#L970-L992}}</li>
+<li>{{T:chasm/registrable_component.go#L220-L222}}</li>
+<li>{{T:chasm/workflow.go#L1-L11}}</li>
+</ul></div>
+</section>

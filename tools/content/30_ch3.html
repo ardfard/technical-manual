@@ -1,0 +1,112 @@
+
+<section class="chapter" data-sheet="SHEET 03" id="ch3">
+<div class="chap-no">Chapter 3</div>
+<h2 id="s3">3 Schema &amp; nesting</h2>
+<p class="lede">All durable data is proto3. This chapter covers the wire rules that matter for Temporal's messages, the anatomy of <code>HistoryEvent</code>, and the recursive <code>Payload</code> containers, with byte-exact dumps of the first stored batch.</p>
+
+<h3 id="s3-1">3.1 Wire rules that show up in Temporal bytes</h3>
+<figure class="fig" data-cap="Protobuf tag byte and the two-byte tags common in Temporal messages." id="fig-tag">
+<div class="bits" style="max-width:520px">
+  <div style="flex:1;background:var(--r-tag-bg)">b7 = continuation</div>
+  <div style="flex:4;background:var(--r-int-bg)">b6…b3 = field number (low 4 bits)</div>
+  <div style="flex:3;background:var(--r-len-bg)">b2…b0 = wire type</div>
+</div>
+<table class="ref compact"><thead><tr><th>bytes</th><th>decoded</th><th>where it appears in the specimen</th></tr></thead><tbody>
+<tr><td class="mono">08</td><td>#1 VARINT</td><td><code>event_id</code>, <code>shard_id</code></td></tr>
+<tr><td class="mono">0a</td><td>#1 LEN</td><td><code>History.events</code>, <code>Payloads.payloads</code>, <code>Payload.metadata</code></td></tr>
+<tr><td class="mono">11</td><td>#2 I64</td><td><code>RetryPolicy.backoff_coefficient</code> (double, 8 B LE)</td></tr>
+<tr><td class="mono">e2 01</td><td>#28 LEN</td><td><code>WorkflowExecutionStartedEventAttributes.workflow_id</code></td></tr>
+<tr><td class="mono">ca 01</td><td>#25 LEN</td><td>started-event <code>header</code> (empty: <code>ca 01 00</code>)</td></tr>
+<tr><td class="mono">a2 06</td><td>#100 LEN</td><td><code>Link.WorkflowEvent.event_ref</code> in StartWorkflowExecutionResponse</td></tr>
+<tr><td class="mono">ea 12</td><td>#301 LEN</td><td><code>HistoryEvent.user_metadata</code> (timer summary "Sleep")</td></tr>
+</tbody></table>
+<figcaption>Protobuf tag byte, <code>(field &lt;&lt; 3) | wire_type</code> as a base-128 varint, and the two-byte tags that are common in Temporal messages. Field numbers ≥ 16 cost two bytes per occurrence. The event-level fields sit at 300–304, well clear of the oneof range 6–65.</figcaption>
+</figure>
+<p>Five encoder behaviors explain almost every surprise in a Temporal hex dump:</p>
+<ol>
+<li><b>Message fields have presence.</b> A zero <code>Duration</code> that is <i>set</i> still costs 2 bytes (<code>3a 00</code> = workflow_execution_timeout present, empty). The server sets many timeouts explicitly to zero, meaning "no timeout". Readers must distinguish unset from zero only for message-typed fields.</li>
+<li><b>Negative int64 costs 10 bytes.</b> <code>Timestamp.seconds</code> is <code>int64</code>, not <code>sint64</code>. The specimen's <code>workflow_run_expiration_time</code> is Go's zero <code>time.Time</code> (0001-01-01T00:00:00Z = −62135596800 s). It encodes as an 11-byte field (<code>08</code> + a 10-byte varint) inside a 14-byte submessage.</li>
+<li><b>Oneof arms are emitted last.</b> protobuf-go marshals non-oneof fields before oneof fields (<code>order.LegacyFieldOrder</code>). So in event 11 the event-level <code>user_metadata</code> #301 comes <i>before</i> <code>timer_started_event_attributes</code> #20 ([[fig:fig-event11timerstarted]]). Decoders must not assume ascending field order.</li>
+<li><b>Maps are repeated entries.</b> <code>map&lt;string,bytes&gt;</code> is <code>repeated {key=1; value=2}</code>. Each entry costs a tag, a length and two inner tags: 4 bytes of framing before any content.</li>
+<li><b>Order is not canonical.</b> Map iteration order is random unless deterministic marshaling is requested. Two replicas of the same state need not be byte-identical.</li>
+</ol>
+
+<h3 id="s3-2">3.2 HistoryEvent anatomy</h3>
+<pre><code>// {{API:temporal/api/history/v1/message.proto#L1188-L1220}} (comments stripped)
+message HistoryEvent {
+    int64 event_id = 1;                               // 1-based, dense, monotonically +1
+    google.protobuf.Timestamp event_time = 2;
+    temporal.api.enums.v1.EventType event_type = 3;
+    int64 version = 4;                                // failover version (0 on local namespaces → omitted)
+    int64 task_id = 5;                                // shard task-ID at write time
+    bool worker_may_ignore = 300;
+    temporal.api.sdk.v1.UserMetadata user_metadata = 301;
+    repeated temporal.api.common.v1.Link links = 302;
+    temporal.api.common.v1.Principal principal = 303;
+    repeated temporal.api.sdk.v1.EventGroupMarker event_group_markers = 304;
+    oneof attributes { … 60 arms, field numbers 6–65 … }
+}</code></pre>
+<p><code>event_type</code> and the populated oneof arm are redundant, and the server keeps them consistent. Two sequences of numbers are involved and they diverge. For event types 1–14 the arm is <code>type + 5</code>. From 15 onward the arms follow the historical declaration order of the attribute messages, not the enum. SDK decoders dispatch on <code>event_type</code> and never compute the field number.</p>
+<figure class="fig" data-cap="EventType enum value vs. oneof attributes field number for all 60 event types. Solid dots deviate from field = type + 5." id="fig-evtplot">
+<!--EVTPLOT-->
+<figcaption>EventType enum value vs. oneof <code>attributes</code> field number for all 60 event types, generated from the pinned protos. Solid dots deviate from <code>field = type + 5</code>. Colors: workflow-task (orange), activity (blue), timer (teal), child (purple), Nexus (red), update (accent). The full table is Appendix B.1.</figcaption>
+</figure>
+<div class="note"><b>Reserved oddities</b> <code>WORKFLOW_EXECUTION_UPDATE_ADMITTED = 47</code> is declared <i>before</i> ACCEPTED (41) in the enum file and uses arm #52. <code>WORKFLOW_EXECUTION_UPDATE_REJECTED</code> (42, arm #47) is documented as "never written to history" ({{API:temporal/api/enums/v1/event_type.proto#L139}}). Rejections travel only as protocol messages.</div>
+
+<h3 id="s3-3">3.3 Payload, Payloads and the map containers</h3>
+<pre><code>// {{API:temporal/api/common/v1/message.proto#L26-L61}}
+message Payloads { repeated Payload payloads = 1; }
+message Payload {
+    map&lt;string,bytes&gt; metadata = 1;               // "encoding", "messageType", codec keys…
+    bytes data = 2;
+    repeated ExternalPayloadDetails external_payloads = 3;   // external storage references
+}
+message SearchAttributes { map&lt;string, Payload&gt; indexed_fields = 1; }
+message Memo             { map&lt;string, Payload&gt; fields = 1; }
+message Header           { map&lt;string, Payload&gt; fields = 1; }</code></pre>
+<p>Every user value that crosses the server is a <code>Payload</code>: workflow and activity inputs, results, signal arguments, memo and search-attribute values, header entries, failure details, and even timer summaries. The server treats <code>data</code> as opaque bytes and counts only sizes. It interprets <code>metadata</code> only for search attributes, where the <code>type</code> key selects the index column (the specimen's <code>BuildIds</code> SA carries <code>type = KeywordList</code>, see §5.5).</p>
+<figure class="fig" data-cap="Container nesting of user values. Payloads (plural) wraps positional arguments; the maps wrap named values." id="fig-payload-nest">
+<svg viewBox="0 0 960 200" role="img" aria-label="Payload container nesting">
+  <rect class="box" x="10" y="20" width="280" height="160"/><text x="22" y="40" class="sans" font-size="14" font-weight="700">Positional (Payloads)</text>
+  <g font-size="10.5"><text x="22" y="62">input / result / details</text><text x="22" y="80" class="muted">→ Payloads{ payloads: [p0, p1, …] }</text><text x="22" y="98" class="muted">one Payload per argument</text><text x="22" y="118">OrderWorkflow("order-1001")</text><text x="22" y="134" class="muted">→ 1 payload, 38 B</text><text x="22" y="154">Charge(42) → data "42" (2 B)</text></g>
+  <rect class="box4" x="330" y="20" width="280" height="160"/><text x="342" y="40" class="sans" font-size="14" font-weight="700">Named (map&lt;string,Payload&gt;)</text>
+  <g font-size="10.5"><text x="342" y="62">Header · Memo · SearchAttributes</text><text x="342" y="80" class="muted">→ repeated Entry{key, Payload}</text><text x="342" y="98" class="muted">header: context propagation, tracing</text><text x="342" y="118">search attr "BuildIds" →</text><text x="342" y="134" class="muted">metadata{encoding:json/plain,</text><text x="342" y="150" class="muted">          type:KeywordList}</text></g>
+  <rect class="box3" x="650" y="20" width="300" height="160"/><text x="662" y="40" class="sans" font-size="14" font-weight="700">Payload</text>
+  <g font-size="10.5"><text x="662" y="62">#1 metadata  map&lt;string,bytes&gt;</text><text x="662" y="80" class="muted">   encoding → json/plain | binary/null |</text><text x="662" y="96" class="muted">   binary/plain | json/protobuf | …</text><text x="662" y="112" class="muted">   messageType → proto full name</text><text x="662" y="134">#2 data      bytes (opaque to server)</text><text x="662" y="156">#3 external_payloads  (size refs)</text></g>
+</svg>
+<figcaption>Container nesting of user values. <code>Payloads</code> (plural) holds positional arguments. The three maps hold named values. Chapter 4 covers the encodings.</figcaption>
+</figure>
+
+<h3 id="s3-4">3.4 The first batch, byte by byte</h3>
+<p>Below is the complete <code>data</code> blob of the first <code>history_node</code> row: node_id 1, 259 bytes, event 1 (WorkflowExecutionStarted) and event 2 (WorkflowTaskScheduled). This is exactly what a reader of the SQL store sees. Trace <code>task_queue</code> (#5 → <code>{name:"orders", kind:1}</code>) and the empty timeout submessages.</p>
+<!--DUMP hnode_01|history_node.data, node_id=1: History{events:[1,2]} exactly as stored in SQLite (259 B).-->
+<p>The same event appears inside <code>PollWorkflowTaskQueueResponse.history</code> with identical bytes (213 B body). The server does not re-encode events for workers. <code>GetWorkflowExecutionHistory</code> also returns them unchanged: all 16 specimen events fetched through it, re-marshaled deterministically on the client, matched the stored <code>history_node</code> bodies byte for byte.</p>
+
+<h3 id="s3-5">3.5 Attributes worth dissecting</h3>
+<h4>Server-filled defaults: ActivityTaskScheduled</h4>
+<p>The worker's <code>ScheduleActivityTaskCommandAttributes</code> carried no retry policy ([[fig:fig-rpcrespondworkflowtaskcompleted]]). The event contains one anyway. The history service fills it from <code>DefaultDefaultRetrySettings</code>: initial interval 1 s, backoff 2.0, maximum interval 100 × initial, and <code>maximum_attempts</code> 0 (unlimited, therefore omitted) ({{T:common/retrypolicy/retry_policy.go#L77-L101}}). The coefficient is the only I64 field in the specimen: <code>11 00 00 00 00 00 00 00 40</code> is IEEE-754 2.0, little-endian.</p>
+<!--DUMP event_05_ActivityTaskScheduled|Event 5 ActivityTaskScheduled (116 B): activity_id "5" equals the scheduling event's ID; retry_policy is server-filled.-->
+<h4>Event-level metadata before the arm: TimerStarted</h4>
+<!--DUMP event_11_TimerStarted|Event 11 TimerStarted (73 B): user_metadata #301 (summary payload "Sleep") precedes the oneof arm #20.-->
+<p>Default IDs are predicted event IDs. The Go SDK's <code>commandsHelper.getNextID()</code> returns the event ID that the resulting command <i>will</i> receive ({{SDK:internal/internal_command_state_machine.go#L1044-L1050}}). That is why <code>timer_id</code> is "11" and <code>activity_id</code> is "5", the IDs of the TimerStarted and ActivityTaskScheduled events. Replay depends on this prediction: a code change that inserts a command shifts every later default ID. The summary <code>"Sleep"</code> is a <code>json/plain</code> Payload in <code>UserMetadata.summary</code>. UIs render it, and replay ignores it.</p>
+<h4>SDK fingerprint in every completion: WorkflowTaskCompleted</h4>
+<!--DUMP event_04_WorkflowTaskCompleted|Event 4 WorkflowTaskCompleted (103 B): worker build ID and sdk_metadata (lang_used_flags, sdk_name, sdk_version).-->
+<p><code>sdk_metadata.lang_used_flags = [3]</code> is packed (<code>12 01 03</code>). Flag 3 is <code>SDKFlagProtocolMessageCommand</code> ({{SDK:internal/internal_flags.go#L26}}). Once a flag is recorded in history, replays of that history must keep the flagged behavior even after an SDK upgrade (Chapter 6). <code>worker_version.build_id</code> defaults to the MD5 of the worker executable (SHA-256 under FIPS), which gives 32 hex chars ({{SDK:internal/checksum.go#L16-L50}}).</p>
+
+<div class="src"><h4>Sources</h4><ul>
+<li>{{API:temporal/api/history/v1/message.proto#L1188-L1286}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L30}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L420}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L559}}</li>
+<li>{{API:temporal/api/history/v1/message.proto#L341}}</li>
+<li>{{API:temporal/api/common/v1/message.proto#L26-L107}}</li>
+<li>{{API:temporal/api/enums/v1/event_type.proto#L15-L177}}</li>
+<li>{{T:common/retrypolicy/retry_policy.go#L66-L101}}</li>
+<li>{{SDK:internal/internal_command_state_machine.go#L1044-L1050}}</li>
+<li>{{SDK:internal/internal_flags.go#L16-L43}}</li>
+<li>{{SDK:internal/checksum.go#L16-L50}}</li>
+<li>{{API:temporal/api/sdk/v1/task_complete_metadata.proto#L34-L40}}</li>
+<li><a class="src-l" href="https://github.com/protocolbuffers/protobuf-go/blob/v1.36.11/internal/order/order.go#L19-L41">protobuf-go/internal/order/order.go:19–41 @v1.36.11</a></li>
+<li><a class="src-l" href="https://protobuf.dev/programming-guides/encoding/#structure">protobuf.dev encoding §Message Structure</a></li>
+</ul></div>
+</section>
